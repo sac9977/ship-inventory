@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% set active_page = 'reports' %}
+
+{% block title %}{{ report_title }} — Ship Inventory{% endblock %}
+
+{% block content %}
+<!-- Print Header (visible only in print) -->
+<div class="print-header">
+    <h1 style="margin:0; font-size:1.6rem">⚓ SHIP INVENTORY MANAGEMENT</h1>
+    <p style="margin:8px 0 0; font-size:1rem; text-transform:uppercase; letter-spacing:0.08em">Stores & Spare Parts Report</p>
+    <p style="margin:4px 0 0; font-size:0.9rem">{{ report_title }}</p>
+    <p style="margin:4px 0 0; font-size:0.7rem; color:#999">Developed by Chief Engineer Sachin Kadam</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Generated: {{ now.strftime('%d %B %Y at %H:%M') }}</p>
+    {% if date_from or date_to %}
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">
+        Period: {{ date_from or 'Start' }} to {{ date_to or 'Present' }}
+    </p>
+    {% endif %}
+</div>
+
+<!-- Screen header (hidden in print) -->
+<div class="flex-between mb-2 no-print">
+    <div>
+        <h2 style="margin:0">{{ report_title }}</h2>
+        <p class="text-muted" style="margin:4px 0 0">{{ now.strftime('%d %B %Y at %H:%M') }}</p>
+    </div>
+    <div class="btn-group">
+        <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
+        <a href="{{ url_for('reports', date_from=date_from, date_to=date_to, year=year, month=month or '') }}" class="btn btn-outline">← Back to Reports</a>
+    </div>
+</div>
+
+<!-- ═══ Summary ═══ -->
+<div class="report-summary">
+    <div class="stat-card">
+        <div class="stat-icon green">📥</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_receipts }}</div>
+            <div class="stat-label">Total Receipts</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon red">📤</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_usage }}</div>
+            <div class="stat-label">Total Usage</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon navy">📊</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_receipts - data.total_usage }}</div>
+            <div class="stat-label">Net Change</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue">📋</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.spares_receipt_qty + data.spares_usage_qty + data.stores_receipt_qty + data.stores_usage_qty }}</div>
+            <div class="stat-label">Total Activity</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SECTION 1: Spare Parts Received ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(34,197,94,0.06)">
+        <span>📥 Spare Parts — Received</span>
+        <span class="badge-status badge-receipt">{{ data.spares_received|length }} items · {{ data.spares_receipt_qty }} pcs</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.spares_received %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr><th>Description</th><th>Part Number</th><th>Machinery</th><th class="text-right">Qty</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in data.spares_received %}
+                    <tr>
+                        <td><strong>{{ item.description }}</strong></td>
+                        <td class="font-mono">{{ item.part_number }}</td>
+                        <td>{{ item.machinery_name }}</td>
+                        <td class="text-right"><span class="qty ok">+{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700"><td colspan="3" class="text-right">Total:</td><td class="text-right">+{{ data.spares_receipt_qty }}</td></tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <p style="padding:16px;text-align:center;color:#999">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 2: Spare Parts Used ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(239,68,68,0.06)">
+        <span>📤 Spare Parts — Consumed</span>
+        <span class="badge-status badge-usage">{{ data.spares_used|length }} items · {{ data.spares_usage_qty }} pcs</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.spares_used %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr><th>Description</th><th>Part Number</th><th>Machinery</th><th class="text-right">Qty</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in data.spares_used %}
+                    <tr>
+                        <td><strong>{{ item.description }}</strong></td>
+                        <td class="font-mono">{{ item.part_number }}</td>
+                        <td>{{ item.machinery_name }}</td>
+                        <td class="text-right"><span class="qty low">-{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700"><td colspan="3" class="text-right">Total:</td><td class="text-right">-{{ data.spares_usage_qty }}</td></tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <p style="padding:16px;text-align:center;color:#999">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 3: Stores Received ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(34,197,94,0.06)">
+        <span>📥 Stores — Received</span>
+        <span class="badge-status badge-receipt">{{ data.stores_received|length }} items · {{ data.stores_receipt_qty }} pcs</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.stores_received %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr><th>Name</th><th>Item Code</th><th>Category</th><th class="text-right">Qty</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in data.stores_received %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="font-mono">{{ item.item_code }}</td>
+                        <td>{{ item.category }}</td>
+                        <td class="text-right"><span class="qty ok">+{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700"><td colspan="3" class="text-right">Total:</td><td class="text-right">+{{ data.stores_receipt_qty }}</td></tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <p style="padding:16px;text-align:center;color:#999">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 4: Stores Used ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(239,68,68,0.06)">
+        <span>📤 Stores — Consumed</span>
+        <span class="badge-status badge-usage">{{ data.stores_used|length }} items · {{ data.stores_usage_qty }} pcs</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.stores_used %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr><th>Name</th><th>Item Code</th><th>Category</th><th class="text-right">Qty</th></tr>
+                </thead>
+                <tbody>
+                    {% for item in data.stores_used %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="font-mono">{{ item.item_code }}</td>
+                        <td>{{ item.category }}</td>
+                        <td class="text-right"><span class="qty low">-{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700"><td colspan="3" class="text-right">Total:</td><td class="text-right">-{{ data.stores_usage_qty }}</td></tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <p style="padding:16px;text-align:center;color:#999">No data</p>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}

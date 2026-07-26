@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Spare Parts from PDF{% endblock %}
+{% block top_bar_title %}Import Spare Parts from PDF{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <span>📄 Import Spare Parts from PDF</span>
+    </div>
+    <div class="card-body">
+        <p class="mb-3">
+            Upload a spare parts list PDF extracted from machinery documentation.
+            The system will attempt to parse part numbers, descriptions, and quantities
+            from the document for review and import.
+        </p>
+
+        <form method="POST" action="{{ url_for('import_pdf') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label for="pdf_file">PDF File</label>
+                <div class="upload-zone" id="uploadZone">
+                    <div class="upload-icon">📄</div>
+                    <p>Drag &amp; drop your PDF here or click to browse</p>
+                    <p class="upload-hint">Supported format: PDF (max 16 MB)</p>
+                    <input type="file" name="pdf_file" id="pdf_file" accept=".pdf"
+                           style="display:none" required>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="machinery_id">Machinery</label>
+                <select name="machinery_id" id="machinery_id" class="form-control">
+                    <option value="">— Select Machinery —</option>
+                    {% for m in machinery %}
+                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                    <span>Parse PDF</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const zone = document.getElementById('uploadZone');
+    const input = document.getElementById('pdf_file');
+
+    zone.addEventListener('click', () => input.click());
+
+    zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zone.classList.add('dragover');
+    });
+
+    zone.addEventListener('dragleave', () => {
+        zone.classList.remove('dragover');
+    });
+
+    zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zone.classList.remove('dragover');
+        if (e.dataTransfer.files.length) {
+            input.files = e.dataTransfer.files;
+            updateZoneText(e.dataTransfer.files[0]);
+        }
+    });
+
+    input.addEventListener('change', () => {
+        if (input.files.length) {
+            updateZoneText(input.files[0]);
+        }
+    });
+
+    function updateZoneText(file) {
+        // Keep the hidden input — only replace the visual content
+        const hint = zone.querySelector('.upload-hint');
+        const icon = zone.querySelector('.upload-icon');
+        const para = zone.querySelector('p');
+        if (icon) icon.textContent = '✅';
+        if (para) para.innerHTML = `<strong>${file.name}</strong>`;
+        if (hint) hint.textContent = `${(file.size / 1024 / 1024).toFixed(2)} MB — Click to change`;
+    }
+});
+</script>
+{% endblock %}

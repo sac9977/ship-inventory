@@ -1,0 +1,113 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Preview — {{ filename }}{% endblock %}
+{% block top_bar_title %}Import Preview — {{ filename }}{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <span>📄 Import Preview — {{ filename }}</span>
+    </div>
+    <div class="card-body">
+        {% if result.machinery_name %}
+        <p class="mb-2">
+            <span class="text-small text-muted">Detected machinery:</span>
+            <strong>{{ result.machinery_name }}</strong>
+        </p>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('import_confirm') }}" id="importForm">
+            <input type="hidden" name="parts_json" id="partsJson"
+                   value="{{ result.parts|tojson }}">
+
+            <div class="form-group">
+                <label for="machinery_id">Assign to Machinery</label>
+                <select name="machinery_id" id="machinery_id" class="form-control"
+                        onchange="document.getElementById('newMachineryWrap').style.display = this.value ? 'none' : 'block';">
+                    <option value="">— Select Existing Machinery —</option>
+                    {% for m in machinery %}
+                    <option value="{{ m.id }}"
+                        {% if machinery_id and machinery_id|string == m.id|string %}selected{% endif %}>
+                        {{ m.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="form-group" id="newMachineryWrap"
+                 style="display: {% if machinery_id %}none{% else %}block{% endif %};">
+                <label for="new_machinery_name">— OR Create New Machinery —</label>
+                <input type="text" name="new_machinery_name" id="new_machinery_name"
+                       class="form-control" placeholder="Enter new machinery name">
+            </div>
+
+            <div class="flex-between mb-2">
+                <label style="margin-bottom:0; text-transform:none; letter-spacing:normal; font-size:0.9rem; font-weight:700;">
+                    Parsed Parts ({{ result.parts|length }} items)
+                </label>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm btn-outline"
+                            onclick="toggleAll(true)">Select All</button>
+                    <button type="button" class="btn btn-sm btn-outline"
+                            onclick="toggleAll(false)">Deselect All</button>
+                </div>
+            </div>
+
+            <div id="partsList">
+                {% for part in result.parts %}
+                <div class="import-preview-item">
+                    <input type="checkbox" name="selected_{{ loop.index }}" checked
+                           data-index="{{ loop.index0 }}">
+                    <span class="part-num font-mono">{{ part.part_number or '—' }}</span>
+                    <span class="part-desc">{{ part.description }}</span>
+                    <span class="part-qty">{{ part.quantity }} {{ part.unit or 'pcs' }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if not result.parts %}
+            <div class="text-muted" style="padding:30px; text-align:center;">
+                ⚠️ No parts were detected in this PDF. The raw text preview below may help identify the format.
+            </div>
+            {% endif %}
+
+            <details style="margin-top:20px;">
+                <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--steel-400); padding:8px 0;">
+                    Raw Text Preview
+                </summary>
+                <pre style="background:var(--steel-50); padding:16px; border-radius:8px; font-size:0.78rem; overflow-x:auto; white-space:pre-wrap; margin-top:8px; max-height:300px; overflow-y:auto;">{{ result.raw_text_preview }}</pre>
+            </details>
+
+            <div class="form-actions">
+                <a href="{{ url_for('import_pdf') }}" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-success" id="submitBtn"
+                        {% if not result.parts %}disabled{% endif %}>
+                    Import Selected Parts
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAll(state) {
+    document.querySelectorAll('#partsList input[type="checkbox"]').forEach(cb => {
+        cb.checked = state;
+    });
+}
+
+// Keep parts_json in sync with checkbox state before submit
+document.getElementById('importForm').addEventListener('submit', function() {
+    const parts = JSON.parse(document.getElementById('partsJson').value);
+    document.querySelectorAll('#partsList input[type="checkbox"]').forEach(cb => {
+        const idx = parseInt(cb.dataset.index);
+        if (idx < parts.length) {
+            parts[idx].selected = cb.checked;
+        }
+    });
+    document.getElementById('partsJson').value = JSON.stringify(parts);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+
+{% block title %}Import IMPA Index{% endblock %}
+{% block top_bar_title %}Import IMPA Index{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📥 Import IMPA Stores Index</h2>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">Upload your IMPA Index PDF to automatically populate the stores database with IMPA codes and descriptions.</p>
+
+        <div class="callout callout-info mb-2" style="background:var(--steel-50); border-left:3px solid var(--navy-400); padding:12px 16px; border-radius:4px; font-size:0.85rem;">
+            <strong>How it works:</strong> The parser extracts IMPA codes (e.g., 81-13, 63-15) and descriptions from the PDF. You'll see a preview where you can select/deselect items and edit descriptions before importing. Duplicate IMPA codes already in the database will be skipped.
+        </div>
+
+        <form method="POST" action="/import-stores" enctype="multipart/form-data">
+            <div class="form-group mb-2">
+                <label for="pdf_file">Select IMPA Index PDF</label>
+                <input type="file" class="form-control" id="pdf_file" name="pdf_file" accept=".pdf" required>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">📄 Parse PDF</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

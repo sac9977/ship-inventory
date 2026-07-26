@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block title %}Spare Parts - Ship Inventory{% endblock %}
+
+{% block top_bar_title %}Spare Parts{% endblock %}
+
+{% block content %}
+<div class="flex-between mb-2" style="margin-bottom: 16px;">
+    <h5 class="mb-0">Machinery Overview</h5>
+    <a href="/machinery/add" class="btn btn-primary">Add Machinery</a>
+</div>
+
+{% if machinery %}
+    <div class="machinery-grid">
+        {% for m in machinery %}
+        <a href="/spares/machinery/{{ m.id }}" class="machinery-card">
+            <h6 class="mb-1">{{ m.name }}</h6>
+            <div class="mfr">{{ m.manufacturer }}</div>
+            <div class="m-stats">
+                <div>
+                    <div class="m-stat-value">{{ m.spare_count }}</div>
+                    <div class="m-stat-label">Parts</div>
+                </div>
+                <div>
+                    <div class="m-stat-value">{{ m.total_qty }}</div>
+                    <div class="m-stat-label">Total Qty</div>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="card">
+        <div class="card-body text-center py-5">
+            <p class="text-muted mb-2">No machinery registered yet.</p>
+            <a href="/machinery/add" class="btn btn-primary">Add Machinery</a>
+        </div>
+    </div>
+{% endif %}
+
+{% if low_stock %}
+<div style="margin-top: 24px;">
+    <h5 class="mb-2">Low Stock Alerts</h5>
+    <div class="machinery-grid">
+        {% for item in low_stock %}
+        <div class="machinery-card" style="border-left: 4px solid #ef4444;">
+            <h6 class="mb-1">{{ item.name }}</h6>
+            <div class="mfr">{{ item.description }}</div>
+            <div class="m-stats">
+                <div>
+                    <div class="m-stat-value" style="color: #ef4444;">{{ item.quantity }}</div>
+                    <div class="m-stat-label">Current Qty</div>
+                </div>
+                <div>
+                    <div class="m-stat-value">{{ item.min_stock }}</div>
+                    <div class="m-stat-label">Min Stock</div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}

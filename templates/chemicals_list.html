@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}Chemicals{% endblock %}
+{% block top_bar_title %}Chemicals{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <div class="flex-between">
+      <h2>Chemicals <small class="text-muted">({{ items|length }})</small></h2>
+      <a href="/chemicals/add" class="btn btn-primary">Add Chemical</a>
+    </div>
+  </div>
+  <div class="card-body">
+    {% if items %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Grade</th>
+          <th>Uses</th>
+          <th>Nature</th>
+          <th>Quantity</th>
+          <th>Unit</th>
+          <th>Min Stock</th>
+          <th>Location</th>
+          <th>Safety Sheet</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in items %}
+        <tr>
+          <td><strong>{{ i.name }}</strong></td>
+          <td>{{ i.grade or '-' }}</td>
+          <td>{{ i.uses or '-' }}</td>
+          <td>
+            {% if i.nature == 'acidic' %}
+            <span class="badge" style="background-color: #e74c3c; color: #fff;">Acidic</span>
+            {% elif i.nature == 'alkaline' %}
+            <span class="badge" style="background-color: #3498db; color: #fff;">Alkaline</span>
+            {% elif i.nature == 'neutral' %}
+            <span class="badge" style="background-color: #27ae60; color: #fff;">Neutral</span>
+            {% else %}
+            <span class="text-muted">-</span>
+            {% endif %}
+          </td>
+          <td class="part-qty{% if i.min_stock and i.quantity <= i.min_stock %}" style="color: #e74c3c; font-weight: bold;{% endif %}">
+            {{ i.quantity }}
+            {% if i.min_stock and i.quantity <= i.min_stock %}
+            <span class="badge-status" style="background-color: #e74c3c; color: #fff;">Low</span>
+            {% endif %}
+          </td>
+          <td>{{ i.unit or '-' }}</td>
+          <td>{{ i.min_stock or '-' }}</td>
+          <td>{{ i.location or '-' }}</td>
+          <td>
+            {% if i.safety_sheet %}
+            <a href="{{ url_for('static', filename='uploads/' + i.safety_sheet) }}" target="_blank" class="btn btn-sm btn-outline">📄 View</a>
+            {% else %}
+            <span class="text-muted">-</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="btn-group">
+              <a href="/chemicals/edit/{{ i.id }}" class="btn btn-sm btn-outline">Edit</a>
+              <form method="POST" action="/chemicals/delete/{{ i.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this chemical?');">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <p class="text-muted">No chemicals found. Click <strong>Add Chemical</strong> to create one.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <div class="flex-between">
+      <h2>Stores</h2>
+      <a href="/stores/add" class="btn btn-primary">Add Item</a>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="GET" class="filter-bar mb-2">
+      <div class="form-row">
+        <div class="form-group">
+          <select name="category" class="form-control">
+            <option value="">All</option>
+            {% for cat in categories %}
+            <option value="{{ cat }}" {% if request.args.get('category') == cat %}selected{% endif %}>{{ cat }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <input type="text" name="search" class="form-control" placeholder="Search items..." value="{{ request.args.get('search', '') }}">
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn btn-outline">Filter</button>
+        </div>
+      </div>
+    </form>
+
+    {% if low_stock %}
+    <div class="card mb-2" style="border-left: 4px solid #e74c3c;">
+      <div class="card-body">
+        <strong>⚠ Low Stock Warning:</strong>
+        <span class="text-muted">The following items are below minimum stock levels:</span>
+        <ul class="mb-2">
+          {% for item in low_stock %}
+          <li><strong>{{ item.name }}</strong> — Quantity: {{ item.quantity }} (Min: {{ item.min_stock }})</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if items %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Item Code</th>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Category</th>
+          <th>Quantity</th>
+          <th>Unit</th>
+          <th>Min Stock</th>
+          <th>Location</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for i in items %}
+        <tr>
+          <td class="part-num">{{ i.item_code }}</td>
+          <td><strong>{{ i.name }}</strong></td>
+          <td class="part-desc">{{ i.description or '-' }}</td>
+          <td><span class="badge-status">{{ i.category }}</span></td>
+          <td class="part-qty{% if i.min_stock and i.quantity <= i.min_stock %}" style="color: #e74c3c; font-weight: bold;{% endif %}">
+            {{ i.quantity }}
+            {% if i.min_stock and i.quantity <= i.min_stock %}
+            <span class="badge-status" style="background-color: #e74c3c; color: #fff;">Low</span>
+            {% endif %}
+          </td>
+          <td>{{ i.unit or '-' }}</td>
+          <td>{{ i.min_stock or '-' }}</td>
+          <td>{{ i.location or '-' }}</td>
+          <td>
+            <div class="btn-group">
+              <a href="/stores/edit/{{ i.id }}" class="btn btn-sm btn-outline">Edit</a>
+              <form method="POST" action="/stores/delete/{{ i.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this item?');">
+                <button type="submit" class="btn btn-sm btn-danger">Delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <p class="text-muted">No store items found. Click <strong>Add Item</strong> to create one.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Spares CSV{% endblock %}
+{% block top_bar_title %}Import Spares CSV{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📥 Import Spare Parts from CSV</h2>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">Upload a CSV file to bulk-import spare parts under a specific machinery.</p>
+
+        <div class="callout callout-info mb-2" style="background:var(--steel-50); border-left:3px solid var(--navy-400); padding:12px 16px; border-radius:4px; font-size:0.85rem;">
+            <strong>CSV columns:</strong> <code>part_number</code>, <code>drawing_number</code>, <code>description</code>, <code>quantity</code>, <code>unit</code>, <code>min_stock</code>, <code>location</code><br>
+            Only <code>description</code> or <code>part_number</code> is required. Column names are case-insensitive.
+        </div>
+
+        <p class="mb-2">
+            <a href="/download-sample/spares" class="btn btn-sm btn-outline">📄 Download Sample CSV</a>
+        </p>
+
+        <form method="POST" action="/import-csv-spares" enctype="multipart/form-data">
+            <div class="form-group mb-2">
+                <label for="machinery_id">Assign to Machinery</label>
+                <select name="machinery_id" id="machinery_id" class="form-control"
+                        onchange="document.getElementById('newMachineryWrap').style.display = this.value ? 'none' : 'block';">
+                    <option value="">— Select Existing Machinery —</option>
+                    {% for m in machinery %}
+                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group mb-2" id="newMachineryWrap" style="display:none;">
+                <label for="new_machinery_name">— OR Create New Machinery —</label>
+                <input type="text" name="new_machinery_name" id="new_machinery_name"
+                       class="form-control" placeholder="Enter new machinery name">
+            </div>
+            <div class="form-group mb-2">
+                <label for="csv_file">Select CSV File</label>
+                <input type="file" class="form-control" id="csv_file" name="csv_file" accept=".csv" required>
+            </div>
+            <div class="form-actions">
+                <a href="/spares" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">📥 Import CSV</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

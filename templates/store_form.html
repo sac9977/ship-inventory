@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <div class="flex-between">
+      <h2>{{ 'Edit Store Item' if item else 'Add Store Item' }}</h2>
+    </div>
+  </div>
+  <div class="card-body">
+    <form method="POST" action="{{ '/stores/edit/' ~ item.id if item else '/stores/add' }}">
+      <div class="form-row three">
+        <div class="form-group">
+          <label for="item_code">Item Code</label>
+          <input type="text" id="item_code" name="item_code" class="form-control" value="{{ item.item_code if item else '' }}">
+        </div>
+        <div class="form-group">
+          <label for="name">Name <span class="text-muted">*</span></label>
+          <input type="text" id="name" name="name" class="form-control" value="{{ item.name if item else '' }}" required>
+        </div>
+        <div class="form-group">
+          <label for="description">Description</label>
+          <input type="text" id="description" name="description" class="form-control" value="{{ item.description if item else '' }}">
+        </div>
+      </div>
+
+      <div class="form-row three">
+        <div class="form-group">
+          <label for="category">Category</label>
+          <input type="text" id="category" name="category" class="form-control" value="{{ item.category if item else '' }}" list="category-list">
+          <datalist id="category-list">
+            {% for cat in categories %}
+            <option value="{{ cat }}">
+            {% endfor %}
+          </datalist>
+        </div>
+        <div class="form-group">
+          <label for="quantity">Quantity</label>
+          <input type="number" id="quantity" name="quantity" class="form-control" value="{{ item.quantity if item else 0 }}" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="unit">Unit</label>
+          <select id="unit" name="unit" class="form-control">
+            {% set selected_unit = item.unit if item else '' %}
+            <option value="pcs" {% if selected_unit == 'pcs' %}selected{% endif %}>pcs</option>
+            <option value="set" {% if selected_unit == 'set' %}selected{% endif %}>set</option>
+            <option value="ea" {% if selected_unit == 'ea' %}selected{% endif %}>ea</option>
+            <option value="kg" {% if selected_unit == 'kg' %}selected{% endif %}>kg</option>
+            <option value="ltr" {% if selected_unit == 'ltr' %}selected{% endif %}>ltr</option>
+            <option value="m" {% if selected_unit == 'm' %}selected{% endif %}>m</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row three">
+        <div class="form-group">
+          <label for="min_stock">Min Stock</label>
+          <input type="number" id="min_stock" name="min_stock" class="form-control" value="{{ item.min_stock if item else 0 }}" min="0" step="0.01">
+        </div>
+        <div class="form-group">
+          <label for="location">Location</label>
+          <input type="text" id="location" name="location" class="form-control" value="{{ item.location if item else '' }}">
+        </div>
+        <div class="form-group"></div>
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-success">Save</button>
+        <a href="/stores" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

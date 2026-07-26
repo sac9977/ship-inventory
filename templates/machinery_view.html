@@ -1,0 +1,101 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ machinery.name }}{% endblock %}
+{% block top_bar_title %}{{ machinery.name }}{% endblock %}
+
+{% block content %}
+<!-- Machinery Detail Card -->
+<div class="card mb-2">
+    <div class="card-header">
+        {{ machinery.name }}
+    </div>
+    <div class="card-body">
+        <div class="mb-2">
+            <div class="text-muted text-small mb-1">Manufacturer</div>
+            <div>{{ machinery.manufacturer or '—' }}</div>
+        </div>
+        <div class="mb-2">
+            <div class="text-muted text-small mb-1">Model</div>
+            <div>{{ machinery.model or '—' }}</div>
+        </div>
+        <div class="mb-2">
+            <div class="text-muted text-small mb-1">Description</div>
+            <div>{{ machinery.description or '—' }}</div>
+        </div>
+
+        <div class="form-actions">
+            <a href="{{ url_for('machinery_edit', machinery_id=machinery.id) }}" class="btn btn-primary btn-sm">✏️ Edit</a>
+            <form method="POST" action="{{ url_for('machinery_delete', machinery_id=machinery.id) }}"
+                  style="display:inline;"
+                  onsubmit="return confirm('Are you sure you want to delete this machinery and all its spare parts?');">
+                <button type="submit" class="btn btn-danger btn-sm">🗑️ Delete</button>
+            </form>
+            <a href="{{ url_for('spare_add', machinery_id=machinery.id) }}" class="btn btn-success btn-sm">➕ Add Spare Part</a>
+            <a href="{{ url_for('import_pdf') }}" class="btn btn-outline btn-sm">📄 Import from PDF</a>
+        </div>
+    </div>
+</div>
+
+<!-- Spare Parts Table -->
+<div class="card">
+    <div class="card-header">
+        Spare Parts ({{ parts|length }})
+    </div>
+    <div class="card-body">
+        {% if parts %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Part Number</th>
+                        <th>Description</th>
+                        <th>Quantity</th>
+                        <th>Unit</th>
+                        <th>Min Stock</th>
+                        <th>Location</th>
+                        <th>Last Updated</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in parts %}
+                    <tr>
+                        <td class="font-mono">{{ p.part_number or '—' }}</td>
+                        <td>{{ p.description }}</td>
+                        <td>
+                            <span class="qty {{ 'low' if p.quantity <= p.min_stock else 'ok' }}">
+                                {{ p.quantity }}
+                            </span>
+                            {% if p.quantity <= p.min_stock %}
+                            <span class="badge-status badge-low">LOW</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ p.unit or '—' }}</td>
+                        <td>{{ p.min_stock }}</td>
+                        <td>{{ p.location or '—' }}</td>
+                        <td>{{ p.last_updated if p.last_updated else '—' }}</td>
+                        <td>
+                            <div class="btn-group">
+                                <a href="{{ url_for('spare_edit', part_id=p.id) }}" class="btn btn-outline btn-sm">✏️ Edit</a>
+                                <form method="POST" action="{{ url_for('spare_delete', part_id=p.id) }}"
+                                      style="display:inline;"
+                                      onsubmit="return confirm('Are you sure you want to delete this spare part?');">
+                                    <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">📦</div>
+            <h3>No Spare Parts</h3>
+            <p class="text-muted">No spare parts have been added for this machinery yet.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+
+{% block title %}Import IMPA Preview{% endblock %}
+{% block top_bar_title %}Import IMPA Preview — {{ filename }}{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <span>📥 Import Preview — {{ filename }}</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="/import-stores-confirm" id="importForm">
+            <input type="hidden" name="items_json" id="itemsJson"
+                   value='{{ items|tojson }}'>
+
+            <div class="flex-between mb-2">
+                <label style="margin-bottom:0; text-transform:none; letter-spacing:normal; font-size:0.9rem; font-weight:700;">
+                    Parsed Items ({{ items|length }} items)
+                </label>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-sm btn-outline"
+                            onclick="toggleAll(true)">Select All</button>
+                    <button type="button" class="btn btn-sm btn-outline"
+                            onclick="toggleAll(false)">Deselect All</button>
+                </div>
+            </div>
+
+            <div id="itemsList" style="max-height:500px; overflow-y:auto;">
+                {% for item in items %}
+                <div class="import-preview-item" style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid var(--steel-100);">
+                    <input type="checkbox" name="selected_{{ loop.index }}" checked
+                           data-index="{{ loop.index0 }}" style="flex-shrink:0;">
+                    <span class="font-mono" style="min-width:70px; font-weight:600; color:var(--navy-600);">{{ item.impa_code }}</span>
+                    <input type="text" class="form-control" style="flex:1; font-size:0.82rem; padding:4px 8px;"
+                           value="{{ item.description }}" data-field="description" data-index="{{ loop.index0 }}">
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if not items %}
+            <div class="text-muted" style="padding:30px; text-align:center;">
+                ⚠️ No items were detected in this PDF.
+            </div>
+            {% endif %}
+
+            <div class="form-actions" style="margin-top:16px;">
+                <a href="/import-stores" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-success"
+                        {% if not items %}disabled{% endif %}>
+                    Import Selected Items
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAll(state) {
+    document.querySelectorAll('#itemsList input[type="checkbox"]').forEach(cb => {
+        cb.checked = state;
+    });
+}
+
+// Keep items_json in sync before submit
+document.getElementById('importForm').addEventListener('submit', function() {
+    var items = JSON.parse(document.getElementById('itemsJson').value);
+    // Update descriptions from editable inputs
+    document.querySelectorAll('#itemsList input[data-field="description"]').forEach(input => {
+        var idx = parseInt(input.dataset.index);
+        if (idx < items.length) {
+            items[idx].description = input.value;
+            items[idx].name = input.value;
+        }
+    });
+    // Update selected state from checkboxes
+    document.querySelectorAll('#itemsList input[type="checkbox"]').forEach(cb => {
+        var idx = parseInt(cb.dataset.index);
+        if (idx < items.length) {
+            items[idx].selected = cb.checked;
+        }
+    });
+    document.getElementById('itemsJson').value = JSON.stringify(items);
+});
+</script>
+{% endblock %}

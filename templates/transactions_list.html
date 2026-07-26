@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>Transaction History</h2>
+  </div>
+  <div class="card-body">
+    <form method="GET" class="filter-bar mb-2">
+      <div class="form-row">
+        <div class="form-group">
+          <select name="category" class="form-control">
+            <option value="">All</option>
+            <option value="Spares" {% if request.args.get('category') == 'Spares' %}selected{% endif %}>Spares</option>
+            <option value="Stores" {% if request.args.get('category') == 'Stores' %}selected{% endif %}>Stores</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <select name="type" class="form-control">
+            <option value="">All</option>
+            <option value="receipt" {% if request.args.get('type') == 'receipt' %}selected{% endif %}>Receipt</option>
+            <option value="usage" {% if request.args.get('type') == 'usage' %}selected{% endif %}>Usage</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <input type="date" name="date_from" class="form-control" value="{{ request.args.get('date_from', '') }}">
+        </div>
+        <div class="form-group">
+          <input type="date" name="date_to" class="form-control" value="{{ request.args.get('date_to', '') }}">
+        </div>
+        <div class="form-group">
+          <button type="submit" class="btn btn-outline">Search</button>
+          <a href="/transactions" class="btn btn-outline">Clear</a>
+        </div>
+      </div>
+    </form>
+
+    {% if transactions %}
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Category</th>
+          <th>Item Name</th>
+          <th>Code</th>
+          <th>Machinery</th>
+          <th>Quantity</th>
+          <th>Crew</th>
+          <th>Remarks</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in transactions %}
+        <tr>
+          <td>{{ t.created_at if t.created_at else '-' }}</td>
+          <td>
+            {% if t.transaction_type == 'receipt' %}
+            <span class="badge-receipt">Receipt</span>
+            {% else %}
+            <span class="badge-usage">Usage</span>
+            {% endif %}
+          </td>
+          <td><span class="badge-status">{{ t.item_category }}</span></td>
+          <td>{{ t.item_name or '-' }}</td>
+          <td class="part-num">{{ t.item_code or '-' }}</td>
+          <td>{{ t.machinery_name or '-' }}</td>
+          <td class="part-qty">{{ t.quantity }}</td>
+          <td>{{ t.crew_name or '-' }}</td>
+          <td class="text-muted">{{ t.remarks or '-' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <p class="text-muted">No transactions found. Record a transaction to see it here.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

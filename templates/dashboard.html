@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+
+{% block title %}Dashboard - Ship Inventory{% endblock %}
+
+{% block top_bar_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stat Cards -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon" style="background: #dbeafe;">⚙️</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ stats.machinery_count }}</div>
+            <div class="stat-label">Machinery</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background: #dbeafe;">🔧</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ stats.spare_count }} <span class="text-muted" style="font-size:0.9rem;">/ {{ stats.spare_qty }}</span></div>
+            <div class="stat-label">Spare Parts (items / qty)</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background: #dcfce7;">📦</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ stats.store_count }} <span class="text-muted" style="font-size:0.9rem;">/ {{ stats.store_qty }}</span></div>
+            <div class="stat-label">Stores (items / qty)</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon" style="background: #fee2e2;">⚠️</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ stats.low_spares + stats.low_stores }}</div>
+            <div class="stat-label">Low Stock Alerts</div>
+        </div>
+    </div>
+</div>
+
+<!-- Two-column grid -->
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+    <!-- Left: Recent Transactions -->
+    <div class="card">
+        <div class="card-header">Recent Transactions</div>
+        <div class="card-body">
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Item</th>
+                            <th>Qty</th>
+                            <th>Crew</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for t in stats.recent_transactions %}
+                        <tr>
+                            <td>{{ t.created_at }}</td>
+                            <td>
+                                <span class="badge-status badge-{{ t.transaction_type }}">{{ t.transaction_type|capitalize }}</span>
+                            </td>
+                            <td>{{ t.item_name or '-' }}</td>
+                            <td>{{ t.quantity }}</td>
+                            <td>{{ t.crew_name or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Monthly Usage Chart -->
+    <div class="card">
+        <div class="card-header">Monthly Usage - {{ stats.current_year }}</div>
+        <div class="card-body">
+            <div class="chart-container">
+                <canvas id="monthlyChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% block scripts %}
+<script>
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthlyData = {{ stats.monthly_usage | tojson }};
+
+    const labels = monthlyData.map(d => monthNames[parseInt(d.month, 10) - 1]);
+    const receiptData = monthlyData.map(d => d.receipts);
+    const usageData = monthlyData.map(d => d.usage);
+
+    const ctx = document.getElementById('monthlyChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Receipts',
+                    data: receiptData,
+                    backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                    borderColor: 'rgba(34, 197, 94, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                },
+                {
+                    label: 'Usage',
+                    data: usageData,
+                    backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}
+
+{% endblock %}

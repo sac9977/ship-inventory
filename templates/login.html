@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login — Ship Inventory</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+            background: #0a1628;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .login-card {
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            width: 100%;
+            max-width: 400px;
+            overflow: hidden;
+        }
+        .login-header {
+            background: #1a3152;
+            color: #fff;
+            padding: 32px 32px 28px;
+            text-align: center;
+        }
+        .login-header .icon { font-size: 2.5rem; margin-bottom: 12px; }
+        .login-header h1 { font-size: 1.3rem; font-weight: 700; margin-bottom: 4px; }
+        .login-header p { font-size: 0.8rem; color: #93aed0; letter-spacing: 0.05em; text-transform: uppercase; }
+        .login-body { padding: 32px; }
+        .form-group { margin-bottom: 18px; }
+        .form-group label {
+            display: block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: #1a3152;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .form-control {
+            width: 100%;
+            padding: 11px 14px;
+            border: 1px solid #bccde4;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            color: #0a1628;
+            transition: border-color 0.15s;
+        }
+        .form-control:focus {
+            outline: none;
+            border-color: #2e5090;
+            box-shadow: 0 0 0 3px rgba(46, 80, 144, 0.12);
+        }
+        .remember-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 20px;
+            font-size: 0.85rem;
+            color: #6b8bb5;
+        }
+        .remember-row input { accent-color: #2e5090; }
+        .btn-login {
+            width: 100%;
+            padding: 12px;
+            background: #243f68;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-login:hover { background: #1a3152; }
+        .flash-messages { margin-bottom: 16px; }
+        .flash {
+            padding: 10px 14px;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        .flash-success { background: #dcfce7; color: #16a34a; border: 1px solid #bbf7d0; }
+        .flash-danger { background: #fee2e2; color: #dc2626; border: 1px solid #fecaca; }
+        .flash-warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="login-header">
+            <div class="icon">⚓</div>
+            <h1>{% if ship_name %}{{ ship_name }}{% else %}Ship Inventory{% endif %}</h1>
+            <p>Stores &amp; Spare Parts Management</p>
+        </div>
+        <div class="login-body">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-messages">
+                {% for category, message in messages %}
+                <div class="flash flash-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            <form method="POST" action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" class="form-control"
+                           placeholder="Enter your username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" class="form-control"
+                           placeholder="Enter your password" required>
+                </div>
+                <div class="remember-row">
+                    <input type="checkbox" id="remember" name="remember">
+                    <label for="remember" style="text-transform:none;letter-spacing:0;font-weight:400;color:#6b8bb5">Remember me for 7 days</label>
+                </div>
+                <button type="submit" class="btn-login">Sign In</button>
+            </form>
+        </div>
+    </div>
+    <div style="margin-top:20px;text-align:center;color:#4a6a8a;font-size:0.75rem">
+        Developed by Chief Engineer Sachin Kadam
+    </div>
+</body>
+</html>

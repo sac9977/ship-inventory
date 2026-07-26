@@ -1,0 +1,108 @@
+{% extends 'base.html' %}
+
+{% block title %}Crew Management{% endblock %}
+{% block top_bar_title %}Crew Management{% endblock %}
+
+{% block content %}
+<!-- Add Crew Form -->
+<div class="card mb-2">
+    <div class="card-header">
+        ➕ Add Crew Member
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('crew_manage') }}">
+            <div class="form-row three">
+                <div class="form-group">
+                    <label for="name">Full Name *</label>
+                    <input type="text" class="form-control" id="name" name="name" required placeholder="e.g. John Smith">
+                </div>
+                <div class="form-group">
+                    <label for="rank">Rank</label>
+                    <input type="text" class="form-control" id="rank" name="rank" placeholder="e.g. Chief Engineer">
+                </div>
+                <div class="form-group">
+                    <label for="role">Role</label>
+                    <select class="form-control" id="role" name="role">
+                        <option value="user">User (View & Transact)</option>
+                        <option value="admin">Admin (Full Access)</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="username">Login Username</label>
+                    <input type="text" class="form-control" id="username" name="username" placeholder="For system login (optional)">
+                </div>
+                <div class="form-group">
+                    <label for="password">Login Password</label>
+                    <input type="password" class="form-control" id="password" name="password" placeholder="Set a password for login (optional)">
+                </div>
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary">➕ Add Crew Member</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Crew Table -->
+<div class="card">
+    <div class="card-header">
+        👥 Crew Members ({{ crew|length }})
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if crew %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Rank</th>
+                        <th>Username</th>
+                        <th>Role</th>
+                        <th>Login</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in crew %}
+                    <tr>
+                        <td><strong>{{ c.name }}</strong></td>
+                        <td class="text-muted">{{ c.rank or '—' }}</td>
+                        <td class="font-mono">{{ c.username or '—' }}</td>
+                        <td>
+                            {% if c.role == 'admin' %}
+                            <span class="badge-status" style="background:var(--navy-600);color:#fff">Admin</span>
+                            {% else %}
+                            <span class="badge-status" style="background:var(--steel-100);color:var(--navy-700)">User</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.username %}
+                            <span class="badge-status badge-ok">✓ Enabled</span>
+                            {% else %}
+                            <span class="text-muted text-small">No login</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <form method="POST" action="{{ url_for('crew_delete', crew_id=c.id) }}"
+                                  style="display:inline;"
+                                  onsubmit="return confirm('Remove {{ c.name }} from crew?');">
+                                <button type="submit" class="btn btn-danger btn-sm">🗑️ Remove</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-icon">👥</div>
+            <h3>No Crew Members</h3>
+            <p class="text-muted">No crew members have been added yet. Use the form above to add crew with login access.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

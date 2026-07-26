@@ -1,0 +1,278 @@
+{% extends "base.html" %}
+{% set active_page = 'reports' %}
+
+{% block title %}Reports — Ship Inventory{% endblock %}
+{% block top_bar_title %}Reports{% endblock %}
+
+{% block content %}
+<div class="flex-between mb-2">
+    <div>
+        <h2 style="margin:0">{{ report_title }}</h2>
+        <p class="text-muted" style="margin:4px 0 0">Generated {{ now.strftime('%d %B %Y at %H:%M') }}</p>
+    </div>
+    <div class="btn-group no-print">
+        <button onclick="window.print()" class="btn btn-primary">🖨️ Print Report</button>
+    </div>
+</div>
+
+<!-- ═══ Date Range Filter ═══ -->
+<div class="card mb-2 no-print">
+    <div class="card-header">📅 Date Range</div>
+    <div class="card-body" style="padding:14px 20px">
+        <form method="GET" id="reportForm">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+                <!-- Custom Date Range -->
+                <div class="form-group" style="margin:0;flex:1;min-width:160px">
+                    <label for="date_from">From Date</label>
+                    <input type="date" id="date_from" name="date_from" class="form-control"
+                           value="{{ date_from or '' }}">
+                </div>
+                <div class="form-group" style="margin:0;flex:1;min-width:160px">
+                    <label for="date_to">To Date</label>
+                    <input type="date" id="date_to" name="date_to" class="form-control"
+                           value="{{ date_to or '' }}">
+                </div>
+                <div style="flex:0 0 auto">
+                    <button type="submit" class="btn btn-primary">Generate</button>
+                </div>
+                <div style="flex:0 0 auto">
+                    <a href="{{ url_for('reports') }}" class="btn btn-outline">Reset</a>
+                </div>
+            </div>
+            <!-- Quick Select Shortcuts -->
+            <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+                <span class="text-muted text-small" style="line-height:32px">Quick:</span>
+                {% set today = now.strftime('%Y-%m-%d') %}
+                <button type="button" class="btn btn-outline btn-sm" onclick="setDateRange('{{ now.strftime('%Y-%m-01') }}', '{{ today }}')">This Month</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setDateRange('{{ now.replace(day=1).replace(month=now.month-1 if now.month>1 else 12).strftime('%Y-%m-01') }}', '{{ now.replace(day=1).replace(month=now.month-1 if now.month>1 else 12).strftime('%Y-%m-%d') if now.month>1 else now.replace(day=1).strftime('%Y-%m-%d') }}')">Last Month</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setDateRange('{{ now.strftime('%Y-01-01') }}', '{{ today }}')">Year to Date</button>
+                <button type="button" class="btn btn-outline btn-sm" onclick="setDateRange('{{ now.replace(month=now.month, day=1).strftime('%Y-%m-01') }}', '{{ today }}')">Last 30 Days</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- ═══ Summary Cards ═══ -->
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-icon green">📥</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_receipts }}</div>
+            <div class="stat-label">Total Receipts</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon red">📤</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_usage }}</div>
+            <div class="stat-label">Total Usage</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon navy">📊</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.total_receipts - data.total_usage }}</div>
+            <div class="stat-label">Net Change</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue">📋</div>
+        <div class="stat-info">
+            <div class="stat-value">{{ data.spares_receipt_qty + data.spares_usage_qty + data.stores_receipt_qty + data.stores_usage_qty }}</div>
+            <div class="stat-label">Total Activity</div>
+        </div>
+    </div>
+</div>
+
+<!-- ═══ SECTION 1: Spare Parts Received ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(34,197,94,0.06)">
+        <span>📥 Spare Parts — Received</span>
+        <span class="badge-status badge-receipt">{{ data.spares_received|length }} items · {{ data.spares_receipt_qty }} pcs total</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.spares_received %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th>Part Number</th>
+                        <th>Machinery</th>
+                        <th class="text-right">Qty Received</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data.spares_received %}
+                    <tr>
+                        <td><strong>{{ item.description }}</strong></td>
+                        <td class="font-mono">{{ item.part_number }}</td>
+                        <td class="text-muted">{{ item.machinery_name }}</td>
+                        <td class="text-right"><span class="qty ok">+{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700;background:var(--steel-50)">
+                        <td colspan="3" class="text-right">Total:</td>
+                        <td class="text-right"><span class="qty ok">+{{ data.spares_receipt_qty }}</span></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="table empty-state">
+            <div class="empty-icon">📥</div>
+            <p>No spare parts received in this period</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 2: Spare Parts Used ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(239,68,68,0.06)">
+        <span>📤 Spare Parts — Consumed</span>
+        <span class="badge-status badge-usage">{{ data.spares_used|length }} items · {{ data.spares_usage_qty }} pcs total</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.spares_used %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Description</th>
+                        <th>Part Number</th>
+                        <th>Machinery</th>
+                        <th class="text-right">Qty Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data.spares_used %}
+                    <tr>
+                        <td><strong>{{ item.description }}</strong></td>
+                        <td class="font-mono">{{ item.part_number }}</td>
+                        <td class="text-muted">{{ item.machinery_name }}</td>
+                        <td class="text-right"><span class="qty low">-{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700;background:var(--steel-50)">
+                        <td colspan="3" class="text-right">Total:</td>
+                        <td class="text-right"><span class="qty low">-{{ data.spares_usage_qty }}</span></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="table empty-state">
+            <div class="empty-icon">📤</div>
+            <p>No spare parts consumed in this period</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 3: Stores Received ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(34,197,94,0.06)">
+        <span>📥 Stores — Received</span>
+        <span class="badge-status badge-receipt">{{ data.stores_received|length }} items · {{ data.stores_receipt_qty }} pcs total</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.stores_received %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Item Code</th>
+                        <th>Category</th>
+                        <th class="text-right">Qty Received</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data.stores_received %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="font-mono">{{ item.item_code }}</td>
+                        <td class="text-muted">{{ item.category }}</td>
+                        <td class="text-right"><span class="qty ok">+{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700;background:var(--steel-50)">
+                        <td colspan="3" class="text-right">Total:</td>
+                        <td class="text-right"><span class="qty ok">+{{ data.stores_receipt_qty }}</span></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="table empty-state">
+            <div class="empty-icon">📥</div>
+            <p>No stores received in this period</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ═══ SECTION 4: Stores Used ═══ -->
+<div class="card mb-2">
+    <div class="card-header" style="background:rgba(239,68,68,0.06)">
+        <span>📤 Stores — Consumed</span>
+        <span class="badge-status badge-usage">{{ data.stores_used|length }} items · {{ data.stores_usage_qty }} pcs total</span>
+    </div>
+    <div class="card-body" style="padding:0">
+        {% if data.stores_used %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Item Code</th>
+                        <th>Category</th>
+                        <th class="text-right">Qty Used</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in data.stores_used %}
+                    <tr>
+                        <td><strong>{{ item.name }}</strong></td>
+                        <td class="font-mono">{{ item.item_code }}</td>
+                        <td class="text-muted">{{ item.category }}</td>
+                        <td class="text-right"><span class="qty low">-{{ item.total_qty }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr style="font-weight:700;background:var(--steel-50)">
+                        <td colspan="3" class="text-right">Total:</td>
+                        <td class="text-right"><span class="qty low">-{{ data.stores_usage_qty }}</span></td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+        {% else %}
+        <div class="table empty-state">
+            <div class="empty-icon">📤</div>
+            <p>No stores consumed in this period</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Quick date range selector
+function setDateRange(from, to) {
+    document.getElementById('date_from').value = from;
+    document.getElementById('date_to').value = to;
+    document.getElementById('reportForm').submit();
+}
+</script>
+{% endblock %}

@@ -1,0 +1,193 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <div class="card-header">
+    <h2>Record Transaction</h2>
+  </div>
+  <div class="card-body">
+    <form method="POST" action="/transaction">
+      {# Transaction Type #}
+      <div class="form-group mb-2">
+        <label>Transaction Type</label>
+        <div class="form-row">
+          <label class="btn btn-outline btn-success" style="cursor:pointer;">
+            <input type="radio" name="_tt" value="receipt"
+              {% if pre_type != 'usage' %}checked{% endif %}> Receipt
+          </label>
+          <label class="btn btn-outline btn-danger" style="cursor:pointer;">
+            <input type="radio" name="_tt" value="usage"
+              {% if pre_type == 'usage' %}checked{% endif %}> Usage
+          </label>
+        </div>
+      </div>
+
+      {# Item Category #}
+      <div class="form-group mb-2">
+        <label>Item Category</label>
+        <div class="form-row" style="flex-wrap:wrap; gap:6px;">
+          <label class="btn btn-outline" style="cursor:pointer;">
+            <input type="radio" name="_ic" value="spares"
+              {% if pre_category == 'spares' or not pre_category %}checked{% endif %}> Spares
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer;">
+            <input type="radio" name="_ic" value="stores"
+              {% if pre_category == 'stores' %}checked{% endif %}> Stores
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer;">
+            <input type="radio" name="_ic" value="oils"
+              {% if pre_category == 'oils' %}checked{% endif %}> Oils
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer;">
+            <input type="radio" name="_ic" value="chemicals"
+              {% if pre_category == 'chemicals' %}checked{% endif %}> Chemicals
+          </label>
+          <label class="btn btn-outline" style="cursor:pointer;">
+            <input type="radio" name="_ic" value="greases"
+              {% if pre_category == 'greases' %}checked{% endif %}> Greases
+          </label>
+        </div>
+      </div>
+
+      {# Item Select Dropdown #}
+      <div class="form-group">
+        <label for="item_id">Item</label>
+        <select id="item_id" name="item_id" class="form-control" required>
+          <option value="">-- Select Item --</option>
+        </select>
+      </div>
+
+      {# Quantity #}
+      <div class="form-group">
+        <label for="quantity">Quantity</label>
+        <input type="number" id="quantity" name="quantity" class="form-control" min="1" step="1" required>
+      </div>
+
+      {# Crew Name with Datalist #}
+      <div class="form-group">
+        <label for="crew_name">Crew Name</label>
+        <input type="text" id="crew_name" name="crew_name" class="form-control" list="crew-list">
+        <datalist id="crew-list">
+          {% for c in crew %}
+          <option value="{{ c.name }}">
+          {% endfor %}
+        </datalist>
+      </div>
+
+      {# Remarks #}
+      <div class="form-group">
+        <label for="remarks">Remarks</label>
+        <textarea id="remarks" name="remarks" class="form-control" rows="3"></textarea>
+      </div>
+
+      {# Hidden fields updated by JS #}
+      <input type="hidden" name="transaction_type" id="hidden_type" value="{{ pre_type or 'receipt' }}">
+      <input type="hidden" name="item_category" id="hidden_category" value="{{ pre_category or 'spares' }}">
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Record Transaction</button>
+        <a href="/transactions" class="btn btn-outline">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Item data by category (embedded from server)
+  // For spares: grouped object { machineryName: [{id, label}] }
+  // For others: flat array [{id, label}]
+  var allItems = {
+    'spares': {
+      {% for mname, parts in machinery_spares.items() %}
+      '{{ mname | e }}': [
+        {% for sp in parts %}
+        { id: 'spares:{{ sp.id }}', label: '{{ sp.part_number | e }} — {{ sp.description | e }} (Qty: {{ sp.quantity }})' }{% if not loop.last %},{% endif %}
+        {% endfor %}
+      ]{% if not loop.last %},{% endif %}
+      {% endfor %}
+    },
+    'stores': [
+      {% for st in stores_items %}
+      { id: 'stores:{{ st.id }}', label: '{{ st.item_code | e }} — {{ st.name | e }} (Qty: {{ st.quantity }})' }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ],
+    'oils': [
+      {% for oil in oils_items %}
+      { id: 'oils:{{ oil.id }}', label: '{{ oil.name | e }} — {{ oil.grade | e }} (Qty: {{ oil.quantity }} {{ oil.unit }})' }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ],
+    'chemicals': [
+      {% for ch in chemicals_items %}
+      { id: 'chemicals:{{ ch.id }}', label: '{{ ch.name | e }} — {{ ch.grade | e }} (Qty: {{ ch.quantity }} {{ ch.unit }})' }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ],
+    'greases': [
+      {% for gr in greases_items %}
+      { id: 'greases:{{ gr.id }}', label: '{{ gr.name | e }} — {{ gr.grade | e }} (Qty: {{ gr.quantity }} {{ gr.unit }})' }{% if not loop.last %},{% endif %}
+      {% endfor %}
+    ]
+  };
+
+  function updateItemDropdown() {
+    var cat = document.querySelector('input[name="_ic"]:checked');
+    var sel = document.getElementById('item_id');
+    var catVal = cat ? cat.value : 'spares';
+    var items = allItems[catVal] || [];
+
+    // Remember current selection
+    var prevVal = sel.value;
+    sel.innerHTML = '<option value="">-- Select Item --</option>';
+
+    if (catVal === 'spares' && typeof items === 'object' && !Array.isArray(items)) {
+      // Grouped spares: render <optgroup> per machinery
+      var machines = Object.keys(items);
+      machines.sort();
+      machines.forEach(function(machineName) {
+        var parts = items[machineName];
+        if (parts.length === 0) return;
+        var group = document.createElement('optgroup');
+        group.label = machineName;
+        parts.forEach(function(item) {
+          var opt = document.createElement('option');
+          opt.value = item.id;
+          opt.textContent = item.label;
+          if (item.id === prevVal) opt.selected = true;
+          group.appendChild(opt);
+        });
+        sel.appendChild(group);
+      });
+    } else {
+      // Flat list for stores, oils, chemicals, greases
+      items.forEach(function(item) {
+        var opt = document.createElement('option');
+        opt.value = item.id;
+        opt.textContent = item.label;
+        if (item.id === prevVal) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    }
+
+    // Update hidden field
+    document.getElementById('hidden_category').value = catVal;
+  }
+
+  function updateType() {
+    var tt = document.querySelector('input[name="_tt"]:checked');
+    if (tt) document.getElementById('hidden_type').value = tt.value;
+  }
+
+  // Listen for category changes
+  document.querySelectorAll('input[name="_ic"]').forEach(function(radio) {
+    radio.addEventListener('change', updateItemDropdown);
+  });
+
+  // Listen for type changes
+  document.querySelectorAll('input[name="_tt"]').forEach(function(radio) {
+    radio.addEventListener('change', updateType);
+  });
+
+  // Initialize on load
+  updateItemDropdown();
+  updateType();
+</script>
+{% endblock %}

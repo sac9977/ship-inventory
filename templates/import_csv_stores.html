@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Stores CSV{% endblock %}
+{% block top_bar_title %}Import Stores CSV{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📥 Import Stores from CSV</h2>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">Upload a CSV file to bulk-import store items. Duplicate IMPA codes already in the database will be skipped.</p>
+
+        <div class="callout callout-info mb-2" style="background:var(--steel-50); border-left:3px solid var(--navy-400); padding:12px 16px; border-radius:4px; font-size:0.85rem;">
+            <strong>CSV columns:</strong> <code>impa_code</code>, <code>name</code>, <code>description</code>, <code>category</code>, <code>quantity</code>, <code>unit</code>, <code>min_stock</code>, <code>location</code><br>
+            Only <code>name</code> is required. All others are optional. Column names are case-insensitive.
+        </div>
+
+        <p class="mb-2">
+            <a href="/download-sample/stores" class="btn btn-sm btn-outline">📄 Download Sample CSV</a>
+        </p>
+
+        <form method="POST" action="/import-csv-stores" enctype="multipart/form-data">
+            <div class="form-group mb-2">
+                <label for="csv_file">Select CSV File</label>
+                <input type="file" class="form-control" id="csv_file" name="csv_file" accept=".csv" required>
+            </div>
+            <div class="form-actions">
+                <a href="/stores" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">📥 Import CSV</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,1285 @@
+"""
+Ship Inventory Management System
+Main Flask application with all routes for spares, stores, transactions, and reports.
+"""
+import sys
+import os
+
+# ── Fix: Remove hermes-agent venv paths that cause architecture conflicts ──
+sys.path = [p for p in sys.path if 'hermes' not in p.lower()]
+
+import json
+import tempfile
+import hashlib
+import secrets
+from datetime import datetime, date
+from functools import wraps
+from flask import (Flask, render_template, request, redirect, url_for,
+                   flash, jsonify, session, abort)
+from werkzeug.utils import secure_filename
+import database as db
+from pdf_parser import parse_pdf
+
+app = Flask(__name__)
+app.secret_key = 'ship-inventory-secret-key-change-in-production'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # 7 days
+
+# ── Initialize Database ──
+db.init_db()
+db.ensure_admin_user()  # Create default admin login if none exists
+
+
+# ══════════════════════════════════════════════════════════════
+#  AUTHENTICATION SYSTEM
+# ══════════════════════════════════════════════════════════════
+
+def hash_password(password):
+    """Hash a password with a random salt using SHA-256."""
+    salt = secrets.token_hex(16)
+    h = hashlib.sha256((salt + password).encode()).hexdigest()
+    return f"{salt}${h}"
+
+
+def verify_password(stored, password):
+    """Verify a password against its stored hash."""
+    if '$' not in stored:
+        return False
+    salt, h = stored.split('$', 1)
+    return hashlib.sha256((salt + password).encode()).hexdigest() == h
+
+
+def login_required(f):
+    """Decorator — redirects to login if not authenticated."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated
+
+
+def admin_required(f):
+    """Decorator — requires admin role."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please log in to access this page.', 'warning')
+            return redirect(url_for('login', next=request.url))
+        if session.get('user_role') != 'admin':
+            flash('Admin access required.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ── Auth Routes ──
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if 'user_id' in session:
+        return redirect(url_for('dashboard'))
+
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        remember = request.form.get('remember') == 'on'
+
+        user = db.authenticate_user(username, password)
+        if user:
+            session.permanent = remember
+            session['user_id'] = user['id']
+            session['user_name'] = user['name']
+            session['user_rank'] = user['rank']
+            session['user_role'] = user.get('role', 'user')
+            next_url = request.args.get('next', url_for('dashboard'))
+            flash(f'Welcome, {user["name"]}!', 'success')
+            return redirect(next_url)
+        else:
+            flash('Invalid username or password.', 'danger')
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    name = session.get('user_name', 'User')
+    session.clear()
+    flash(f'Goodbye, {name}.', 'success')
+    return redirect(url_for('login'))
+
+
+@app.route('/change-password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    if request.method == 'POST':
+        current = request.form.get('current_password', '')
+        new_pass = request.form.get('new_password', '')
+        confirm = request.form.get('confirm_password', '')
+
+        if not db.verify_user_password(session['user_id'], current):
+            flash('Current password is incorrect.', 'danger')
+        elif len(new_pass) < 4:
+            flash('New password must be at least 4 characters.', 'danger')
+        elif new_pass != confirm:
+            flash('New passwords do not match.', 'danger')
+        else:
+            db.update_user_password(session['user_id'], new_pass)
+            flash('Password changed successfully.', 'success')
+            return redirect(url_for('dashboard'))
+
+    return render_template('change_password.html')
+
+
+# ── Dashboard ──
+
+@app.route('/')
+@login_required
+def dashboard():
+    stats = db.get_dashboard_stats()
+    return render_template('dashboard.html', stats=stats)
+
+
+# ── Machinery Routes ──
+
+@app.route('/machinery')
+@login_required
+def machinery_list():
+    machinery = db.get_all_machinery()
+    return render_template('machinery_list.html', machinery=machinery)
+
+
+@app.route('/machinery/add', methods=['GET', 'POST'])
+@admin_required
+def machinery_add():
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        if not name:
+            flash('Machinery name is required.', 'danger')
+            return redirect(url_for('machinery_add'))
+        mid = db.create_machinery(
+            name=name,
+            manufacturer=request.form.get('manufacturer', '').strip(),
+            model=request.form.get('model', '').strip(),
+            description=request.form.get('description', '').strip(),
+        )
+        flash(f'Machinery "{name}" added successfully.', 'success')
+        return redirect(url_for('machinery_view', machinery_id=mid))
+    return render_template('machinery_form.html', machinery=None)
+
+
+@app.route('/machinery/<int:machinery_id>')
+@login_required
+def machinery_view(machinery_id):
+    machinery = db.get_machinery(machinery_id)
+    if not machinery:
+        flash('Machinery not found.', 'danger')
+        return redirect(url_for('machinery_list'))
+    parts = db.get_spare_parts_by_machinery(machinery_id)
+    return render_template('machinery_view.html', machinery=machinery, parts=parts)
+
+
+@app.route('/machinery/<int:machinery_id>/edit', methods=['GET', 'POST'])
+@admin_required
+def machinery_edit(machinery_id):
+    machinery = db.get_machinery(machinery_id)
+    if not machinery:
+        flash('Machinery not found.', 'danger')
+        return redirect(url_for('machinery_list'))
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        if not name:
+            flash('Machinery name is required.', 'danger')
+            return redirect(url_for('machinery_edit', machinery_id=machinery_id))
+        db.update_machinery(
+            machinery_id, name=name,
+            manufacturer=request.form.get('manufacturer', '').strip(),
+            model=request.form.get('model', '').strip(),
+            description=request.form.get('description', '').strip(),
+        )
+        flash('Machinery updated.', 'success')
+        return redirect(url_for('machinery_view', machinery_id=machinery_id))
+    return render_template('machinery_form.html', machinery=machinery)
+
+
+@app.route('/machinery/<int:machinery_id>/delete', methods=['POST'])
+@admin_required
+def machinery_delete(machinery_id):
+    m = db.get_machinery(machinery_id)
+    if m:
+        db.delete_machinery(machinery_id)
+        flash(f'Machinery "{m["name"]}" deleted.', 'success')
+    return redirect(url_for('machinery_list'))
+
+
+# ── Spare Parts Routes ──
+
+@app.route('/spares')
+@login_required
+def spares_overview():
+    """Show all machinery with their spare parts counts."""
+    machinery = db.get_all_machinery()
+    low_stock = db.get_low_stock_spare_parts()
+    return render_template('spares_overview.html', machinery=machinery, low_stock=low_stock)
+
+
+@app.route('/spares/machinery/<int:machinery_id>')
+@login_required
+def spares_by_machinery(machinery_id):
+    machinery = db.get_machinery(machinery_id)
+    if not machinery:
+        flash('Machinery not found.', 'danger')
+        return redirect(url_for('spares_overview'))
+    parts = db.get_spare_parts_by_machinery(machinery_id)
+    return render_template('spares_list.html', machinery=machinery, parts=parts)
+
+
+@app.route('/spares/machinery/<int:machinery_id>/add', methods=['GET', 'POST'])
+@login_required
+def spare_add(machinery_id):
+    machinery = db.get_machinery(machinery_id)
+    if not machinery:
+        flash('Machinery not found.', 'danger')
+        return redirect(url_for('spares_overview'))
+    if request.method == 'POST':
+        try:
+            desc = request.form.get('description', '').strip()
+            if not desc:
+                flash('Description is required.', 'danger')
+                return redirect(url_for('spare_add', machinery_id=machinery_id))
+            qty_raw = request.form.get('quantity', '0').strip()
+            min_raw = request.form.get('min_stock', '0').strip()
+            pid = db.create_spare_part(
+                machinery_id=machinery_id,
+                part_number=request.form.get('part_number', '').strip(),
+                drawing_number=request.form.get('drawing_number', '').strip(),
+                description=desc,
+                quantity=int(qty_raw) if qty_raw else 0,
+                unit=request.form.get('unit', 'pcs').strip() or 'pcs',
+                min_stock=int(min_raw) if min_raw else 0,
+                location=request.form.get('location', '').strip(),
+            )
+            flash('Spare part added.', 'success')
+            return redirect(url_for('spares_by_machinery', machinery_id=machinery_id))
+        except Exception as e:
+            flash(f'Error adding spare part: {str(e)}', 'danger')
+            return redirect(url_for('spare_add', machinery_id=machinery_id))
+    return render_template('spare_form.html', machinery=machinery, part=None)
+
+
+@app.route('/spares/edit/<int:part_id>', methods=['GET', 'POST'])
+@login_required
+def spare_edit(part_id):
+    part = db.get_spare_part(part_id)
+    if not part:
+        flash('Spare part not found.', 'danger')
+        return redirect(url_for('spares_overview'))
+    if request.method == 'POST':
+        try:
+            desc = request.form.get('description', '').strip()
+            if not desc:
+                flash('Description is required.', 'danger')
+                return redirect(url_for('spare_edit', part_id=part_id))
+            qty_raw = request.form.get('quantity', '0').strip()
+            min_raw = request.form.get('min_stock', '0').strip()
+            db.update_spare_part(
+                part_id,
+                part_number=request.form.get('part_number', '').strip(),
+                drawing_number=request.form.get('drawing_number', '').strip(),
+                description=desc,
+                quantity=int(qty_raw) if qty_raw else 0,
+                unit=request.form.get('unit', 'pcs').strip() or 'pcs',
+                min_stock=int(min_raw) if min_raw else 0,
+                location=request.form.get('location', '').strip(),
+            )
+            flash('Spare part updated.', 'success')
+            return redirect(url_for('spares_by_machinery', machinery_id=part['machinery_id']))
+        except Exception as e:
+            flash(f'Error updating spare part: {str(e)}', 'danger')
+            return redirect(url_for('spare_edit', part_id=part_id))
+    machinery = db.get_machinery(part['machinery_id'])
+    return render_template('spare_form.html', machinery=machinery, part=part)
+
+
+@app.route('/spares/delete/<int:part_id>', methods=['POST'])
+@login_required
+def spare_delete(part_id):
+    try:
+        part = db.get_spare_part(part_id)
+        if part:
+            mid = part['machinery_id']
+            db.delete_spare_part(part_id)
+            flash('Spare part deleted.', 'success')
+            return redirect(url_for('spares_by_machinery', machinery_id=mid))
+        flash('Spare part not found.', 'danger')
+    except Exception as e:
+        flash(f'Error deleting spare part: {str(e)}', 'danger')
+    return redirect(url_for('spares_overview'))
+
+
+# ── Stores Routes ──
+
+@app.route('/stores')
+@login_required
+def stores_list():
+    category = request.args.get('category', '')
+    search = request.args.get('search', '').strip()
+    if search:
+        items = db.search_stores(search)
+    else:
+        items = db.get_all_stores(category=category if category else None)
+    categories = db.get_store_categories()
+    low_stock = db.get_low_stock_stores()
+    return render_template('stores_list.html', items=items, categories=categories,
+                           current_category=category, search=search, low_stock=low_stock)
+
+
+@app.route('/stores/add', methods=['GET', 'POST'])
+@login_required
+def store_add():
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        if not name:
+            flash('Item name is required.', 'danger')
+            return redirect(url_for('store_add'))
+        iid = db.create_store_item(
+            item_code=request.form.get('item_code', '').strip(),
+            name=name,
+            description=request.form.get('description', '').strip(),
+            category=request.form.get('category', 'General').strip() or 'General',
+            quantity=int(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'pcs').strip() or 'pcs',
+            min_stock=int(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+        )
+        flash(f'Store item "{name}" added.', 'success')
+        return redirect(url_for('stores_list'))
+    categories = db.get_store_categories()
+    return render_template('store_form.html', item=None, categories=categories)
+
+
+@app.route('/stores/edit/<int:item_id>', methods=['GET', 'POST'])
+@login_required
+def store_edit(item_id):
+    item = db.get_store_item(item_id)
+    if not item:
+        flash('Store item not found.', 'danger')
+        return redirect(url_for('stores_list'))
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        if not name:
+            flash('Item name is required.', 'danger')
+            return redirect(url_for('store_edit', item_id=item_id))
+        db.update_store_item(
+            item_id,
+            item_code=request.form.get('item_code', '').strip(),
+            name=name,
+            description=request.form.get('description', '').strip(),
+            category=request.form.get('category', 'General').strip() or 'General',
+            quantity=int(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'pcs').strip() or 'pcs',
+            min_stock=int(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+        )
+        flash('Store item updated.', 'success')
+        return redirect(url_for('stores_list'))
+    categories = db.get_store_categories()
+    return render_template('store_form.html', item=item, categories=categories)
+
+
+@app.route('/stores/delete/<int:item_id>', methods=['POST'])
+@login_required
+def store_delete(item_id):
+    item = db.get_store_item(item_id)
+    if item:
+        db.delete_store_item(item_id)
+        flash(f'Store item "{item["name"]}" deleted.', 'success')
+    return redirect(url_for('stores_list'))
+
+
+# ── Lubricating Oils Routes ──
+
+@app.route('/oils')
+@login_required
+def oils_list():
+    items = db.get_all_oils()
+    return render_template('oils_list.html', items=items)
+
+@app.route('/oils/add', methods=['GET', 'POST'])
+@admin_required
+def oil_add():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        if not name:
+            flash('Oil name is required.', 'danger')
+            return redirect(url_for('oil_add'))
+        # Handle safety sheet upload
+        ss = ''
+        if 'safety_sheet' in request.files:
+            f = request.files['safety_sheet']
+            if f.filename:
+                os.makedirs(os.path.join(app.static_folder, 'safety_sheets'), exist_ok=True)
+                ss = f'safety_sheets/oil_{name.replace(" ","_")}_{f.filename}'
+                f.save(os.path.join(app.static_folder, ss))
+        db.create_oil(
+            name=name,
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'ltr').strip() or 'ltr',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+            safety_sheet=ss,
+        )
+        flash(f'Lubricating oil "{name}" added.', 'success')
+        return redirect(url_for('oils_list'))
+    return render_template('oil_form.html')
+
+@app.route('/oils/edit/<int:item_id>', methods=['GET', 'POST'])
+@admin_required
+def oil_edit(item_id):
+    item = db.get_oil(item_id)
+    if not item:
+        flash('Item not found.', 'danger')
+        return redirect(url_for('oils_list'))
+    if request.method == 'POST':
+        ss = item.get('safety_sheet', '')
+        if 'safety_sheet' in request.files:
+            f = request.files['safety_sheet']
+            if f.filename:
+                os.makedirs(os.path.join(app.static_folder, 'safety_sheets'), exist_ok=True)
+                ss = f'safety_sheets/oil_{item["name"].replace(" ","_")}_{f.filename}'
+                f.save(os.path.join(app.static_folder, ss))
+        db.update_oil(
+            item_id,
+            name=request.form.get('name', '').strip(),
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'ltr').strip() or 'ltr',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+            safety_sheet=ss,
+        )
+        flash('Oil updated.', 'success')
+        return redirect(url_for('oils_list'))
+    return render_template('oil_form.html', item=item)
+
+@app.route('/oils/delete/<int:item_id>', methods=['POST'])
+@admin_required
+def oil_delete(item_id):
+    item = db.get_oil(item_id)
+    if item:
+        db.delete_oil(item_id)
+        flash(f'"{item["name"]}" deleted.', 'success')
+    return redirect(url_for('oils_list'))
+
+
+# ── Chemicals Routes ──
+
+@app.route('/chemicals')
+@login_required
+def chemicals_list():
+    items = db.get_all_chemicals()
+    return render_template('chemicals_list.html', items=items)
+
+@app.route('/chemicals/add', methods=['GET', 'POST'])
+@admin_required
+def chemical_add():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        if not name:
+            flash('Chemical name is required.', 'danger')
+            return redirect(url_for('chemical_add'))
+        ss = ''
+        if 'safety_sheet' in request.files:
+            f = request.files['safety_sheet']
+            if f.filename:
+                os.makedirs(os.path.join(app.static_folder, 'safety_sheets'), exist_ok=True)
+                ss = f'safety_sheets/chem_{name.replace(" ","_")}_{f.filename}'
+                f.save(os.path.join(app.static_folder, ss))
+        db.create_chemical(
+            name=name,
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            nature=request.form.get('nature', 'neutral').strip() or 'neutral',
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'ltr').strip() or 'ltr',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+            safety_sheet=ss,
+        )
+        flash(f'Chemical "{name}" added.', 'success')
+        return redirect(url_for('chemicals_list'))
+    return render_template('chemical_form.html')
+
+@app.route('/chemicals/edit/<int:item_id>', methods=['GET', 'POST'])
+@admin_required
+def chemical_edit(item_id):
+    item = db.get_chemical(item_id)
+    if not item:
+        flash('Item not found.', 'danger')
+        return redirect(url_for('chemicals_list'))
+    if request.method == 'POST':
+        ss = item.get('safety_sheet', '')
+        if 'safety_sheet' in request.files:
+            f = request.files['safety_sheet']
+            if f.filename:
+                os.makedirs(os.path.join(app.static_folder, 'safety_sheets'), exist_ok=True)
+                ss = f'safety_sheets/chem_{item["name"].replace(" ","_")}_{f.filename}'
+                f.save(os.path.join(app.static_folder, ss))
+        db.update_chemical(
+            item_id,
+            name=request.form.get('name', '').strip(),
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            nature=request.form.get('nature', 'neutral').strip() or 'neutral',
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'ltr').strip() or 'ltr',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+            safety_sheet=ss,
+        )
+        flash('Chemical updated.', 'success')
+        return redirect(url_for('chemicals_list'))
+    return render_template('chemical_form.html', item=item)
+
+@app.route('/chemicals/delete/<int:item_id>', methods=['POST'])
+@admin_required
+def chemical_delete(item_id):
+    item = db.get_chemical(item_id)
+    if item:
+        db.delete_chemical(item_id)
+        flash(f'"{item["name"]}" deleted.', 'success')
+    return redirect(url_for('chemicals_list'))
+
+
+# ── Greases Routes ──
+
+@app.route('/greases')
+@login_required
+def greases_list():
+    items = db.get_all_greases()
+    return render_template('greases_list.html', items=items)
+
+@app.route('/greases/add', methods=['GET', 'POST'])
+@admin_required
+def grease_add():
+    if request.method == 'POST':
+        name = request.form.get('name', '').strip()
+        if not name:
+            flash('Grease name is required.', 'danger')
+            return redirect(url_for('grease_add'))
+        db.create_grease(
+            name=name,
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'kg').strip() or 'kg',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+        )
+        flash(f'Grease "{name}" added.', 'success')
+        return redirect(url_for('greases_list'))
+    return render_template('grease_form.html')
+
+@app.route('/greases/edit/<int:item_id>', methods=['GET', 'POST'])
+@admin_required
+def grease_edit(item_id):
+    item = db.get_grease(item_id)
+    if not item:
+        flash('Item not found.', 'danger')
+        return redirect(url_for('greases_list'))
+    if request.method == 'POST':
+        db.update_grease(
+            item_id,
+            name=request.form.get('name', '').strip(),
+            grade=request.form.get('grade', '').strip(),
+            uses=request.form.get('uses', '').strip(),
+            quantity=float(request.form.get('quantity', 0) or 0),
+            unit=request.form.get('unit', 'kg').strip() or 'kg',
+            min_stock=float(request.form.get('min_stock', 0) or 0),
+            location=request.form.get('location', '').strip(),
+        )
+        flash('Grease updated.', 'success')
+        return redirect(url_for('greases_list'))
+    return render_template('grease_form.html', item=item)
+
+@app.route('/greases/delete/<int:item_id>', methods=['POST'])
+@admin_required
+def grease_delete(item_id):
+    item = db.get_grease(item_id)
+    if item:
+        db.delete_grease(item_id)
+        flash(f'"{item["name"]}" deleted.', 'success')
+    return redirect(url_for('greases_list'))
+
+
+# ── Transaction Routes ──
+
+@app.route('/transaction', methods=['GET', 'POST'])
+@login_required
+def transaction_add():
+    if request.method == 'POST':
+        t_type = request.form['transaction_type']
+        category = request.form['item_category']
+        raw_id = request.form.get('item_id', '')
+        quantity = int(request.form.get('quantity', 0) or 0)
+        crew_name = request.form.get('crew_name', '').strip()
+        remarks = request.form.get('remarks', '').strip()
+
+        # Parse "category:id" format from dropdown value
+        if ':' in str(raw_id):
+            parts = str(raw_id).split(':', 1)
+            category = parts[0]
+            item_id = int(parts[1])
+        else:
+            item_id = int(raw_id)
+
+        if quantity <= 0:
+            flash('Quantity must be greater than zero.', 'danger')
+            return redirect(url_for('transaction_add'))
+
+        # Check stock for usage
+        if t_type == 'usage':
+            if category == 'spares':
+                part = db.get_spare_part(item_id)
+                if part and part['quantity'] < quantity:
+                    flash(f'Insufficient stock. Available: {part["quantity"]}', 'danger')
+                    return redirect(url_for('transaction_add'))
+            elif category == 'stores':
+                item = db.get_store_item(item_id)
+                if item and item['quantity'] < quantity:
+                    flash(f'Insufficient stock. Available: {item["quantity"]}', 'danger')
+                    return redirect(url_for('transaction_add'))
+            elif category == 'oils':
+                item = db.get_oil(item_id)
+                if item and item['quantity'] < quantity:
+                    flash(f'Insufficient stock. Available: {item["quantity"]}', 'danger')
+                    return redirect(url_for('transaction_add'))
+            elif category == 'chemicals':
+                item = db.get_chemical(item_id)
+                if item and item['quantity'] < quantity:
+                    flash(f'Insufficient stock. Available: {item["quantity"]}', 'danger')
+                    return redirect(url_for('transaction_add'))
+            elif category == 'greases':
+                item = db.get_grease(item_id)
+                if item and item['quantity'] < quantity:
+                    flash(f'Insufficient stock. Available: {item["quantity"]}', 'danger')
+                    return redirect(url_for('transaction_add'))
+
+        db.record_transaction(t_type, category, item_id, quantity, crew_name, remarks)
+        type_label = 'Received' if t_type == 'receipt' else 'Used'
+        flash(f'{type_label} {quantity} item(s) successfully.', 'success')
+        return redirect(url_for('transactions'))
+
+    # Pre-populate from query params
+    pre_category = request.args.get('category', '')
+    pre_type = request.args.get('type', '')
+    pre_item = request.args.get('item_id', '')
+
+    crew = db.get_all_crew()
+    spares_items = []
+    stores_items = []
+    oils_items = []
+    chemicals_items = []
+    greases_items = []
+    if pre_category == 'spares' or not pre_category:
+        for m in db.get_all_machinery():
+            for p in db.get_spare_parts_by_machinery(m['id']):
+                p['machinery_name'] = m['name']
+                spares_items.append(p)
+    if pre_category == 'stores' or not pre_category:
+        stores_items = db.get_all_stores()
+    if pre_category == 'oils' or not pre_category:
+        oils_items = db.get_all_oils()
+    if pre_category == 'chemicals' or not pre_category:
+        chemicals_items = db.get_all_chemicals()
+    if pre_category == 'greases' or not pre_category:
+        greases_items = db.get_all_greases()
+
+    # Build spares grouped by machinery name
+    machinery_spares = {}
+    for m in db.get_all_machinery():
+        parts = db.get_spare_parts_by_machinery(m['id'])
+        if parts:
+            machinery_spares[m['name']] = [
+                {'id': p['id'], 'part_number': p['part_number'],
+                 'description': p['description'], 'quantity': p['quantity']}
+                for p in parts
+            ]
+
+    return render_template('transaction_form.html',
+                           machinery_spares=machinery_spares,
+                           spares_items=spares_items, stores_items=stores_items,
+                           oils_items=oils_items, chemicals_items=chemicals_items,
+                           greases_items=greases_items,
+                           crew=crew, pre_category=pre_category,
+                           pre_type=pre_type, pre_item=pre_item)
+
+
+@app.route('/transactions')
+@login_required
+def transactions():
+    category = request.args.get('category', '')
+    t_type = request.args.get('type', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    txns = db.get_transactions(
+        item_category=category if category else None,
+        transaction_type=t_type if t_type else None,
+        date_from=date_from if date_from else None,
+        date_to=date_to if date_to else None,
+        limit=500,
+    )
+    return render_template('transactions_list.html', transactions=txns,
+                           category=category, t_type=t_type,
+                           date_from=date_from, date_to=date_to)
+
+
+# ── PDF Import ──
+
+@app.route('/import-pdf', methods=['GET', 'POST'])
+@admin_required
+def import_pdf():
+    if request.method == 'POST':
+        if 'pdf_file' not in request.files:
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_pdf'))
+
+        file = request.files['pdf_file']
+        if file.filename == '':
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_pdf'))
+
+        if not file.filename.lower().endswith('.pdf'):
+            flash('Please upload a PDF file.', 'danger')
+            return redirect(url_for('import_pdf'))
+
+        machinery_id = request.form.get('machinery_id')
+
+        # Save temp file
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+
+        try:
+            result = parse_pdf(tmp_path)
+            machinery = db.get_all_machinery()
+            return render_template('import_preview.html',
+                                   result=result, machinery_id=machinery_id,
+                                   machinery=machinery,
+                                   filename=file.filename)
+        except Exception as e:
+            flash(f'Error parsing PDF: {str(e)}', 'danger')
+            return redirect(url_for('import_pdf'))
+        finally:
+            os.unlink(tmp_path)
+
+    machinery = db.get_all_machinery()
+    return render_template('import_pdf.html', machinery=machinery)
+
+
+@app.route('/import-confirm', methods=['POST'])
+@admin_required
+def import_confirm():
+    """Confirm and save parsed spare parts from PDF."""
+    machinery_id = request.form.get('machinery_id')
+    parts_json = request.form.get('parts_json', '[]')
+    new_machinery_name = request.form.get('new_machinery_name', '').strip()
+
+    if not machinery_id and not new_machinery_name:
+        flash('Please select or create machinery.', 'danger')
+        return redirect(url_for('import_pdf'))
+
+    # Create new machinery if needed
+    if not machinery_id and new_machinery_name:
+        machinery_id = db.create_machinery(name=new_machinery_name)
+    else:
+        machinery_id = int(machinery_id)
+
+    try:
+        parts = json.loads(parts_json)
+        # Filter out unchecked parts
+        checked_parts = [p for p in parts if p.get('selected', True)]
+        if checked_parts:
+            db.bulk_create_spare_parts(machinery_id, checked_parts)
+            flash(f'Imported {len(checked_parts)} spare parts successfully.', 'success')
+        else:
+            flash('No parts selected for import.', 'warning')
+    except Exception as e:
+        flash(f'Error importing parts: {str(e)}', 'danger')
+
+    return redirect(url_for('machinery_view', machinery_id=machinery_id))
+
+
+# ── IMPA Stores Import ──
+
+@app.route('/import-stores', methods=['GET', 'POST'])
+@admin_required
+def import_stores():
+    if request.method == 'POST':
+        if 'pdf_file' not in request.files:
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_stores'))
+
+        file = request.files['pdf_file']
+        if file.filename == '' or not file.filename.lower().endswith('.pdf'):
+            flash('Please upload a PDF file.', 'danger')
+            return redirect(url_for('import_stores'))
+
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+
+        try:
+            import impa_parser
+            items = impa_parser.parse_impa_pdf(tmp_path)
+            return render_template('import_stores_preview.html',
+                                   items=items, filename=file.filename)
+        except Exception as e:
+            flash(f'Error parsing PDF: {str(e)}', 'danger')
+            return redirect(url_for('import_stores'))
+        finally:
+            os.unlink(tmp_path)
+
+    return render_template('import_stores.html')
+
+
+@app.route('/import-stores-confirm', methods=['POST'])
+@admin_required
+def import_stores_confirm():
+    items_json = request.form.get('items_json', '[]')
+    try:
+        items = json.loads(items_json)
+        checked = [i for i in items if i.get('selected', True)]
+        if checked:
+            imported = 0
+            for item in checked:
+                impa_code = item.get('impa_code', '').strip()
+                name = item.get('name', '').strip() or item.get('description', '').strip()
+                description = item.get('description', '').strip()
+                if impa_code and name:
+                    existing = db.search_stores(impa_code)
+                    if not existing:
+                        db.create_store_item(
+                            name=name,
+                            item_code=impa_code,
+                            description=description,
+                        )
+                        imported += 1
+            flash(f'Imported {imported} store items ({len(checked) - imported} duplicates skipped).', 'success')
+        else:
+            flash('No items selected for import.', 'warning')
+    except Exception as e:
+        flash(f'Error importing: {str(e)}', 'danger')
+
+    return redirect(url_for('stores_list'))
+
+
+# ── CSV Import ──
+
+@app.route('/import-csv-stores', methods=['GET', 'POST'])
+@admin_required
+def import_csv_stores():
+    if request.method == 'POST':
+        if 'csv_file' not in request.files:
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_csv_stores'))
+        file = request.files['csv_file']
+        if file.filename == '' or not file.filename.lower().endswith('.csv'):
+            flash('Please upload a CSV file.', 'danger')
+            return redirect(url_for('import_csv_stores'))
+
+        try:
+            import csv, io
+            content = file.read().decode('utf-8-sig')  # handle BOM
+            reader = csv.DictReader(io.StringIO(content))
+            imported = 0
+            skipped = 0
+            for row in reader:
+                impa_code = (row.get('impa_code', '') or row.get('IMPA Code', '') or row.get('item_code', '')).strip()
+                name = (row.get('name', '') or row.get('Name', '') or row.get('description', '')).strip()
+                description = (row.get('description', '') or row.get('Description', '') or name).strip()
+                category = (row.get('category', '') or row.get('Category', '') or 'General').strip()
+                quantity = row.get('quantity', row.get('Quantity', '0')).strip()
+                unit = (row.get('unit', '') or row.get('Unit', '') or 'pcs').strip()
+                min_stock = row.get('min_stock', row.get('Min Stock', '0')).strip()
+                location = (row.get('location', '') or row.get('Location', '') or '').strip()
+
+                if not name:
+                    skipped += 1
+                    continue
+
+                # Check for duplicate IMPA code
+                if impa_code:
+                    existing = db.search_stores(impa_code)
+                    if existing:
+                        skipped += 1
+                        continue
+
+                db.create_store_item(
+                    name=name,
+                    item_code=impa_code,
+                    description=description,
+                    category=category,
+                    quantity=int(quantity) if quantity.isdigit() else 0,
+                    unit=unit,
+                    min_stock=int(min_stock) if min_stock.isdigit() else 0,
+                    location=location,
+                )
+                imported += 1
+
+            flash(f'Imported {imported} store items ({skipped} skipped).', 'success')
+        except Exception as e:
+            flash(f'Error importing CSV: {str(e)}', 'danger')
+
+        return redirect(url_for('stores_list'))
+
+    return render_template('import_csv_stores.html')
+
+
+@app.route('/import-csv-spares', methods=['GET', 'POST'])
+@admin_required
+def import_csv_spares():
+    if request.method == 'POST':
+        if 'csv_file' not in request.files:
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_csv_spares'))
+        file = request.files['csv_file']
+        if file.filename == '' or not file.filename.lower().endswith('.csv'):
+            flash('Please upload a CSV file.', 'danger')
+            return redirect(url_for('import_csv_spares'))
+
+        machinery_id = request.form.get('machinery_id')
+        new_machinery_name = request.form.get('new_machinery_name', '').strip()
+
+        if not machinery_id and not new_machinery_name:
+            flash('Please select or create machinery.', 'danger')
+            return redirect(url_for('import_csv_spares'))
+
+        if not machinery_id and new_machinery_name:
+            machinery_id = db.create_machinery(name=new_machinery_name)
+        else:
+            machinery_id = int(machinery_id)
+
+        try:
+            import csv, io
+            content = file.read().decode('utf-8-sig')
+            reader = csv.DictReader(io.StringIO(content))
+            imported = 0
+            for row in reader:
+                part_number = (row.get('part_number', '') or row.get('Part Number', '') or row.get('item_code', '')).strip()
+                drawing_number = (row.get('drawing_number', '') or row.get('Drawing Number', '') or row.get('Drawing', '')).strip()
+                description = (row.get('description', '') or row.get('Description', '') or row.get('name', '')).strip()
+                quantity = row.get('quantity', row.get('Quantity', '0')).strip()
+                unit = (row.get('unit', '') or row.get('Unit', '') or 'pcs').strip()
+                min_stock = row.get('min_stock', row.get('Min Stock', '0')).strip()
+                location = (row.get('location', '') or row.get('Location', '') or '').strip()
+
+                if not description and not part_number:
+                    continue
+
+                db.create_spare_part(
+                    machinery_id=machinery_id,
+                    part_number=part_number,
+                    drawing_number=drawing_number,
+                    description=description or f'Part {part_number}',
+                    quantity=int(quantity) if quantity.isdigit() else 0,
+                    unit=unit,
+                    min_stock=int(min_stock) if min_stock.isdigit() else 0,
+                    location=location,
+                )
+                imported += 1
+
+            flash(f'Imported {imported} spare parts.', 'success')
+        except Exception as e:
+            flash(f'Error importing CSV: {str(e)}', 'danger')
+
+        return redirect(url_for('spares_by_machinery', machinery_id=machinery_id))
+
+    machinery = db.get_all_machinery()
+    return render_template('import_csv_spares.html', machinery=machinery)
+
+
+@app.route('/download-sample/<sample_type>')
+@login_required
+def download_sample_csv(sample_type):
+    import csv, io
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    if sample_type == 'stores':
+        writer.writerow(['impa_code', 'name', 'description', 'category', 'quantity', 'unit', 'min_stock', 'location'])
+        writer.writerow(['81-13', 'Araldite Adhesive', 'Epoxy adhesive for metal bonding', 'Adhesives', '10', 'pcs', '2', 'Store Room A'])
+        writer.writerow(['63-15', 'Drill Chuck Arbor', 'Morse taper drill chuck arbor', 'Tools', '5', 'pcs', '1', 'Workshop'])
+        writer.writerow(['33-91', 'Asbestos Safety Kits', 'Fire-resistant safety kit', 'Safety', '3', 'set', '1', 'Safety Store'])
+        filename = 'stores_sample.csv'
+    elif sample_type == 'spares':
+        writer.writerow(['part_number', 'drawing_number', 'description', 'quantity', 'unit', 'min_stock', 'location'])
+        writer.writerow(['P-001', 'DWG-1470-001', 'Hydraulic Jack Complete', '5', 'pcs', '2', 'Spare Store'])
+        writer.writerow(['P-002', 'DWG-1470-002', 'Sealing Ring with Back-up', '20', 'pcs', '5', 'Spare Store'])
+        writer.writerow(['P-003', '', 'Hex Key Set', '3', 'set', '1', 'Workshop'])
+        filename = 'spares_sample.csv'
+    else:
+        flash('Invalid sample type.', 'danger')
+        return redirect(url_for('dashboard'))
+
+    output.seek(0)
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition': f'attachment; filename={filename}'}
+    )
+
+
+# ── Reports ──
+
+@app.route('/reports')
+@login_required
+def reports():
+    now = datetime.now()
+
+    # Date range parameters
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    year = request.args.get('year', '')
+    month = request.args.get('month', '')
+
+    # Determine report title and params
+    report_title = 'Inventory Report'
+    report_params = {}
+
+    if date_from or date_to:
+        # Custom date range mode
+        report_params['date_from'] = date_from
+        report_params['date_to'] = date_to
+        if date_from and date_to:
+            report_title = f'Inventory Report — {date_from} to {date_to}'
+        elif date_from:
+            report_title = f'Inventory Report — From {date_from}'
+        else:
+            report_title = f'Inventory Report — Up to {date_to}'
+    elif year:
+        year_int = int(year)
+        report_params['year'] = year_int
+        if month:
+            month_int = int(month)
+            report_params['month'] = month_int
+            months_map = {1:'January',2:'February',3:'March',4:'April',5:'May',6:'June',
+                         7:'July',8:'August',9:'September',10:'October',11:'November',12:'December'}
+            report_title = f'Inventory Report — {months_map.get(month_int,"")} {year_int}'
+        else:
+            report_title = f'Inventory Report — Full Year {year_int}'
+    else:
+        # Default: current year
+        report_params['year'] = now.year
+        report_title = f'Inventory Report — Full Year {now.year}'
+
+    data = db.get_report_data(**report_params)
+    years = list(range(now.year - 5, now.year + 1))
+    months = [
+        (1, 'January'), (2, 'February'), (3, 'March'), (4, 'April'),
+        (5, 'May'), (6, 'June'), (7, 'July'), (8, 'August'),
+        (9, 'September'), (10, 'October'), (11, 'November'), (12, 'December'),
+    ]
+
+    return render_template('reports.html', data=data, years=years, months=months,
+                           report_title=report_title, now=now,
+                           date_from=date_from, date_to=date_to,
+                           year=report_params.get('year', now.year),
+                           month=report_params.get('month'))
+
+
+@app.route('/reports/print')
+@login_required
+def reports_print():
+    """Print-friendly report view."""
+    now = datetime.now()
+
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+    year = request.args.get('year', '')
+    month = request.args.get('month', '')
+
+    report_title = 'Inventory Report'
+    report_params = {}
+
+    if date_from or date_to:
+        report_params['date_from'] = date_from
+        report_params['date_to'] = date_to
+        if date_from and date_to:
+            report_title = f'Inventory Report — {date_from} to {date_to}'
+        elif date_from:
+            report_title = f'Inventory Report — From {date_from}'
+        else:
+            report_title = f'Inventory Report — Up to {date_to}'
+    elif year:
+        year_int = int(year)
+        report_params['year'] = year_int
+        months_map = {1:'January',2:'February',3:'March',4:'April',5:'May',6:'June',
+                     7:'July',8:'August',9:'September',10:'October',11:'November',12:'December'}
+        if month:
+            month_int = int(month)
+            report_params['month'] = month_int
+            report_title = f'Inventory Report — {months_map.get(month_int,"")} {year_int}'
+        else:
+            report_title = f'Inventory Report — Full Year {year_int}'
+    else:
+        report_params['year'] = now.year
+        report_title = f'Inventory Report — Full Year {now.year}'
+
+    data = db.get_report_data(**report_params)
+
+    return render_template('reports_print.html', data=data,
+                           report_title=report_title, now=now,
+                           date_from=date_from, date_to=date_to,
+                           year=report_params.get('year', now.year),
+                           month=report_params.get('month'))
+
+
+# ── Crew Management ──
+
+@app.route('/crew', methods=['GET', 'POST'])
+@admin_required
+def crew_manage():
+    if request.method == 'POST':
+        name = request.form['name'].strip()
+        rank = request.form.get('rank', '').strip()
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        role = request.form.get('role', 'user').strip()
+        if name:
+            db.create_crew_member(name, rank, username, password, role)
+            flash(f'Crew member "{name}" added.', 'success')
+        return redirect(url_for('crew_manage'))
+    crew = db.get_all_crew()
+    return render_template('crew_list.html', crew=crew)
+
+
+@app.route('/crew/delete/<int:crew_id>', methods=['POST'])
+@admin_required
+def crew_delete(crew_id):
+    db.delete_crew_member(crew_id)
+    flash('Crew member removed.', 'success')
+    return redirect(url_for('crew_manage'))
+
+
+# ── Search API ──
+
+@app.route('/api/search')
+@login_required
+def api_search():
+    query = request.args.get('q', '').strip()
+    category = request.args.get('category', 'all')
+    results = []
+
+    if len(query) >= 2:
+        if category in ('all', 'spares'):
+            for p in db.search_spare_parts(query):
+                results.append({
+                    'type': 'spare',
+                    'id': p['id'],
+                    'name': p['description'],
+                    'code': p['part_number'],
+                    'machinery': p.get('machinery_name', ''),
+                    'qty': p['quantity'],
+                })
+        if category in ('all', 'stores'):
+            for s in db.search_stores(query):
+                results.append({
+                    'type': 'store',
+                    'id': s['id'],
+                    'name': s['name'],
+                    'code': s['item_code'],
+                    'machinery': s['category'],
+                    'qty': s['quantity'],
+                })
+
+    return jsonify(results)
+
+
+# ── Context Processors ──
+
+@app.context_processor
+def inject_globals():
+    _cfg = _get_config()
+    # Derive active_page from request path for sidebar highlighting
+    path = request.path.strip('/')
+    active_page = ''
+    if path == '' or path == 'index':
+        active_page = 'dashboard'
+    elif 'import-pdf' in path:
+        active_page = 'import-pdf'
+    elif 'import-stores' in path:
+        active_page = 'import_stores'
+    elif 'import-csv-stores' in path:
+        active_page = 'import_csv_stores'
+    elif 'import-csv-spares' in path:
+        active_page = 'import_csv_spares'
+    elif 'spares' in path:
+        active_page = 'spares'
+    elif 'stores' in path:
+        active_page = 'stores'
+    elif 'oils' in path:
+        active_page = 'oils'
+    elif 'chemicals' in path:
+        active_page = 'chemicals'
+    elif 'greases' in path:
+        active_page = 'greases'
+    elif 'transaction' in path and 'transactions' not in path:
+        active_page = 'transaction'
+    elif 'transactions' in path:
+        active_page = 'transactions'
+    elif 'machinery' in path:
+        active_page = 'machinery'
+    elif 'crew' in path:
+        active_page = 'crew'
+    elif 'reports' in path:
+        active_page = 'reports'
+    elif 'change-password' in path:
+        active_page = 'change-password'
+
+    return {
+        'app_name': 'Ship Inventory',
+        'ship_name': _cfg.get('ship_name', ''),
+        'active_page': active_page,
+        'now': datetime.now(),
+        'current_user': {
+            'id': session.get('user_id'),
+            'name': session.get('user_name', ''),
+            'rank': session.get('user_rank', ''),
+            'role': session.get('user_role', ''),
+        } if 'user_id' in session else None,
+    }
+
+
+# ── Run ──
+
+def _get_config():
+    """Read config.txt (written by setup.py), returns dict with port and ship_name."""
+    config = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.txt")
+    cfg = {"port": 8080, "ship_name": ""}
+    if os.path.exists(config):
+        with open(config, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("port="):
+                    try: cfg["port"] = int(line.split("=", 1)[1])
+                    except ValueError: pass
+                elif line.startswith("ship_name="):
+                    cfg["ship_name"] = line.split("=", 1)[1].strip()
+    return cfg
+
+if __name__ == '__main__':
+    _cfg = _get_config()
+    port = _cfg["port"]
+    ship = _cfg["ship_name"]
+    if ship:
+        print(f"\n  ⚓ {ship} — Inventory System")
+    print(f"\n  🌐 Running on http://0.0.0.0:{port}\n")
+    app.run(host='0.0.0.0', port=port, debug=False)

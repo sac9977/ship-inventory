@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>⚓ Ship Inventory — Setup Guide</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+               background: #0a1628; color: #e8edf3; line-height: 1.6; }
+        .hero { background: linear-gradient(135deg, #0d2137, #1a3a5c); padding: 60px 40px;
+                text-align: center; border-bottom: 3px solid #f59e0b; }
+        .hero h1 { font-size: 2.5rem; margin-bottom: 8px; }
+        .hero h1 span { color: #f59e0b; }
+        .hero p { color: #94a3b8; font-size: 1.1rem; }
+        .container { max-width: 900px; margin: 0 auto; padding: 40px 20px; }
+        .step { background: #0f2336; border: 1px solid #1e3a5f; border-radius: 12px;
+                padding: 30px; margin-bottom: 24px; position: relative; }
+        .step-num { position: absolute; top: -16px; left: 24px; background: #f59e0b;
+                    color: #0a1628; font-weight: 800; font-size: 1.1rem; padding: 4px 16px;
+                    border-radius: 20px; }
+        .step h2 { font-size: 1.3rem; margin-bottom: 12px; margin-top: 4px; }
+        .step p { color: #94a3b8; margin-bottom: 12px; }
+        .cmd { background: #071220; border: 1px solid #1e3a5f; border-radius: 8px;
+               padding: 14px 20px; font-family: 'SF Mono', 'Cascadia Code', Consolas, monospace;
+               font-size: 0.95rem; color: #22d3ee; overflow-x: auto; margin: 12px 0;
+               position: relative; }
+        .cmd .label { color: #64748b; font-size: 0.75rem; text-transform: uppercase;
+                      letter-spacing: 0.08em; margin-bottom: 6px; display: block; }
+        .warn { background: #422006; border: 1px solid #92400e; border-radius: 8px;
+                padding: 16px 20px; margin: 16px 0; display: flex; align-items: flex-start; gap: 12px; }
+        .warn-icon { font-size: 1.5rem; flex-shrink: 0; }
+        .info { background: #0c1f33; border: 1px solid #1e3a5f; border-radius: 8px;
+                padding: 16px 20px; margin: 16px 0; }
+        .info h3 { color: #60a5fa; margin-bottom: 6px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        .grid-item { background: #071220; border: 1px solid #1e3a5f; border-radius: 8px; padding: 20px; text-align: center; }
+        .grid-item h3 { color: #f59e0b; font-size: 1rem; margin-bottom: 4px; }
+        .grid-item p { font-size: 0.9rem; color: #94a3b8; }
+        .grid-item .big { font-size: 1.6rem; font-weight: 700; color: #22d3ee; }
+        .os-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+        .os-tab { padding: 8px 20px; border-radius: 8px; background: #071220; border: 1px solid #1e3a5f;
+                  cursor: pointer; color: #94a3b8; font-weight: 600; transition: all 0.2s; }
+        .os-tab.active, .os-tab:hover { background: #1e3a5f; color: #e8edf3; border-color: #f59e0b; }
+        .os-content { display: none; }
+        .os-content.active { display: block; }
+        .checklist { list-style: none; }
+        .checklist li { padding: 8px 0; padding-left: 28px; position: relative; color: #94a3b8; }
+        .checklist li::before { content: '✓'; position: absolute; left: 0; color: #22c55e; font-weight: 700; }
+        footer { text-align: center; padding: 40px; color: #475569; font-size: 0.85rem;
+                 border-top: 1px solid #1e3a5f; margin-top: 40px; }
+        a { color: #60a5fa; }
+    </style>
+</head>
+<body>
+
+<div class="hero">
+    <h1>⚓ Ship <span>Inventory</span> Management</h1>
+    <p>Stores & Spare Parts Management — Setup Guide</p>
+</div>
+
+<div class="container">
+
+    <!-- STEP 1 -->
+    <div class="step">
+        <div class="step-num">STEP 1</div>
+        <h2>📂 Unzip the File</h2>
+        <p>Find the file <strong>ship-inventory.zip</strong> that was sent to you. Unzip it anywhere — the Desktop, Documents, or a dedicated folder.</p>
+        <div class="grid">
+            <div class="grid-item">
+                <h3>macOS</h3>
+                <p>Double-click the .zip file<br>or right-click → "Open"</p>
+            </div>
+            <div class="grid-item">
+                <h3>Windows</h3>
+                <p>Right-click → "Extract All..."<br>Choose a folder → "Extract"</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="step">
+        <div class="step-num">STEP 2</div>
+        <h2>🐍 Install Python (if not already installed)</h2>
+        <p>Check if you have Python. Open Terminal (macOS) or Command Prompt (Windows) and type:</p>
+        <div class="cmd">
+            <span class="label">type this in terminal / command prompt</span>
+            python3 --version
+        </div>
+        <p>If it shows <strong>Python 3.8 or higher</strong>, skip to Step 3.</p>
+        <p>If it says "command not found" or "python is not recognized", download Python:</p>
+        <div class="info">
+            <h3>📥 Download Python</h3>
+            <p>Go to <strong>https://www.python.org/downloads/</strong> → click the yellow "Download Python" button → run the installer.</p>
+            <p><strong style="color: #f59e0b">⚠ IMPORTANT (Windows only):</strong> During install, CHECK the box that says "Add Python to PATH" or "Add to environment variables" at the bottom of the installer screen!</p>
+        </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="step">
+        <div class="step-num">STEP 3</div>
+        <h2>⚙️ Run the Installer</h2>
+        <p>Open Terminal or Command Prompt, navigate to the ship-inventory folder, and run the setup:</p>
+
+        <div class="os-tabs">
+            <div class="os-tab active" onclick="showOS('mac')">🍎 macOS / Linux</div>
+            <div class="os-tab" onclick="showOS('win')">🪟 Windows</div>
+        </div>
+
+        <div class="os-content active" id="os-mac">
+            <div class="cmd">
+                <span class="label">open terminal, then type:</span>
+                cd ~/Desktop/ship-inventory<br>
+                python3 setup.py --ship-name "MV Your Ship Name"
+            </div>
+            <p>Replace "MV Your Ship Name" with your ship's actual name. This name will appear in the system header and login page.</p>
+        </div>
+
+        <div class="os-content" id="os-win">
+            <div class="cmd">
+                <span class="label">open command prompt, then type:</span>
+                cd C:\Users\YourName\Desktop\ship-inventory<br>
+                python setup.py --ship-name "MV Your Ship Name"
+            </div>
+            <p>Or double-click <strong>install.bat</strong> if you see it in the folder (without ship name option).</p>
+        </div>
+
+        <div class="info">
+            <h3>💡 Tip: Naming Your Ship</h3>
+            <p>The <code style="color:#22d3ee">--ship-name</code> option lets you customize the system name. Example:</p>
+            <div class="cmd" style="margin-top:8px">
+                python3 setup.py --ship-name "MV Pacific Star" --port 8080
+            </div>
+            <p>You can run setup again at any time to change the ship name.</p>
+        </div>
+
+        <p>When you see <strong style="color:#22c55e">✅ INSTALLATION COMPLETE!</strong>, you're done!</p>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="step">
+        <div class="step-num">STEP 4</div>
+        <h2>🚀 Start the System</h2>
+        <p>After installation, start the inventory system:</p>
+
+        <div class="grid">
+            <div class="grid-item">
+                <h3>🍎 macOS / Linux</h3>
+                <div class="cmd" style="font-size:0.85rem">
+                    ./start.sh
+                </div>
+            </div>
+            <div class="grid-item">
+                <h3>🪟 Windows</h3>
+                <p>Double-click <strong>start.bat</strong></p>
+                <p style="color:#64748b;font-size:0.8rem;margin-top:8px">Or in command prompt:<br>start.bat</p>
+            </div>
+        </div>
+
+        <div class="info">
+            <h3>🌐 Access from Any Device on the Ship</h3>
+            <p>Once started, the server shows you the URL. It will look something like:</p>
+            <p class="big" style="color:#22d3ee;font-size:1.3rem;text-align:center;margin:12px 0">
+                http://192.168.x.x:8080
+            </p>
+            <p>Open this URL on <strong>any computer, tablet, or phone</strong> connected to the ship's network.</p>
+        </div>
+    </div>
+
+    <!-- STEP 5 -->
+    <div class="step">
+        <div class="step-num">STEP 5</div>
+        <h2>🔐 Log In</h2>
+        <p>When you open the system in a browser, you'll see the login page.</p>
+        <div class="grid">
+            <div class="grid-item">
+                <h3>Default Admin Login</h3>
+                <p class="big" style="font-size:1.2rem">admin</p>
+                <p>username</p>
+            </div>
+            <div class="grid-item">
+                <h3>Password</h3>
+                <p class="big" style="font-size:1.2rem">admin</p>
+                <p>password</p>
+            </div>
+        </div>
+        <div class="warn">
+            <div class="warn-icon">⚠️</div>
+            <div>
+                <strong>CHANGE THE PASSWORD IMMEDIATELY!</strong><br>
+                Go to your name (top-right) → "Change Password" → set a new strong password.
+            </div>
+        </div>
+    </div>
+
+    <!-- STEP 6 -->
+    <div class="step">
+        <div class="step-num">STEP 6</div>
+        <h2>👥 Add Crew Members</h2>
+        <p>Log in as admin → Go to <strong>Administration → Crew</strong> in the left sidebar.</p>
+        <p>Add each crew member with:</p>
+        <ul class="checklist">
+            <li><strong>Name</strong> — their full name</li>
+            <li><strong>Rank</strong> — Chief Engineer, 2nd Engineer, etc.</li>
+            <li><strong>Username & Password</strong> — their login credentials</li>
+            <li><strong>Role</strong> — "Admin" for officers, "User" for crew members</li>
+        </ul>
+    </div>
+
+    <!-- Quick Start -->
+    <div class="step">
+        <div class="step-num" style="background:#22c55e">QUICK REFERENCE</div>
+        <h2>📋 Day-to-Day Usage</h2>
+        <div class="grid">
+            <div class="grid-item">
+                <h3>📥 Add Stock Received</h3>
+                <p>Go to "Record Transaction"<br>Select "Receipt"<br>Pick item → Enter quantity</p>
+            </div>
+            <div class="grid-item">
+                <h3>📤 Record Stock Used</h3>
+                <p>Go to "Record Transaction"<br>Select "Usage"<br>Pick item → Enter quantity</p>
+            </div>
+            <div class="grid-item">
+                <h3>🔍 Search Items</h3>
+                <p>Use the search bar (🔍) at the top right — search by name or part number</p>
+            </div>
+            <div class="grid-item">
+                <h3>📊 View Reports</h3>
+                <p>Go to "Reports"<br>Pick date range → "Generate"<br>Click "Print" for paper copy</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Troubleshooting -->
+    <div class="step">
+        <div class="step-num" style="background:#ef4444">HELP</div>
+        <h2>🛠️ Troubleshooting</h2>
+        <div class="info" style="margin-bottom:12px">
+            <h3>Problem: "python3: command not found"</h3>
+            <p>Python is not installed. Download from <strong>python.org/downloads</strong>. On Windows, check "Add to PATH" during install.</p>
+        </div>
+        <div class="info" style="margin-bottom:12px">
+            <h3>Problem: "Address already in use"</h3>
+            <p>The server is already running, or another program uses port 8080. Close any existing server, or run: <code style="color:#22d3ee">python3 setup.py --port 8888</code></p>
+        </div>
+        <div class="info" style="margin-bottom:12px">
+            <h3>Problem: Other devices can't access the system</h3>
+            <p>Make sure the computer running the server is connected to the ship's LAN. Check that no firewall is blocking port 8080.</p>
+        </div>
+        <div class="info">
+            <h3>Run the Health Check</h3>
+            <p>If something isn't working, run: <code style="color:#22d3ee">python3 healthcheck.py</code></p>
+            <p>This will diagnose common issues and tell you exactly what's wrong.</p>
+        </div>
+    </div>
+
+</div>
+
+<footer>
+    ⚓ Ship Inventory Management System &mdash; Stores & Spare Parts<br>
+    Developed by Chief Engineer Sachin Kadam<br>
+    For support, contact your Chief Engineer or system administrator.
+</footer>
+
+<script>
+function showOS(os) {
+    document.querySelectorAll('.os-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.os-content').forEach(c => c.classList.remove('active'));
+    if (os === 'mac') {
+        document.querySelectorAll('.os-tab')[0].classList.add('active');
+        document.getElementById('os-mac').classList.add('active');
+    } else {
+        document.querySelectorAll('.os-tab')[1].classList.add('active');
+        document.getElementById('os-win').classList.add('active');
+    }
+}
+</script>
+</body>
+</html>

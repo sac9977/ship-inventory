@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block title %}Machinery{% endblock %}
+{% block top_bar_title %}Machinery{% endblock %}
+
+{% block content %}
+<div class="flex-between mb-2">
+    <div></div>
+    <a href="{{ url_for('machinery_add') }}" class="btn btn-primary">➕ Add Machinery</a>
+</div>
+
+{% if machinery %}
+<div class="machinery-grid">
+    {% for m in machinery %}
+    <a href="{{ url_for('machinery_view', machinery_id=m.id) }}" class="machinery-card">
+        <h3>{{ m.name }}</h3>
+        <div class="mfr">{{ m.manufacturer }}{% if m.model %} · {{ m.model }}{% endif %}</div>
+        <div class="m-stats">
+            <span>
+                <span class="m-stat-label">Spare Parts: </span>
+                <span class="m-stat-value">{{ m.spare_count }}</span>
+            </span>
+            <span>
+                <span class="m-stat-label">Total Qty: </span>
+                <span class="m-stat-value">{{ m.total_qty }}</span>
+            </span>
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body empty-state">
+        <div class="empty-icon">⚙️</div>
+        <h3>No Machinery</h3>
+        <p class="text-muted">No machinery has been added yet. Click "Add Machinery" to get started.</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

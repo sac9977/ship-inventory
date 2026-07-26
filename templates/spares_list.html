@@ -1,0 +1,83 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ machinery.name }} - Spare Parts - Ship Inventory{% endblock %}
+
+{% block top_bar_title %}{{ machinery.name }}{% endblock %}
+
+{% block content %}
+<!-- Breadcrumbs -->
+<nav aria-label="breadcrumb" class="mb-2" style="margin-bottom: 16px;">
+    <ol class="breadcrumb">
+        <li class="breadcrumb-item"><a href="/spares">Spare Parts</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{ machinery.name }}</li>
+    </ol>
+</nav>
+
+<!-- Action buttons -->
+<div class="flex-between mb-2" style="margin-bottom: 16px;">
+    <div class="d-flex gap-2">
+        <a href="/spares/machinery/{{ machinery.id }}/add" class="btn btn-primary">Add Spare Part</a>
+        <a href="/import-pdf" class="btn btn-outline">Import from PDF</a>
+    </div>
+    <div class="text-muted">
+        <strong>{{ parts | length }}</strong> parts &middot; Total qty: <strong>{{ parts | map(attribute='quantity') | sum }}</strong>
+    </div>
+</div>
+
+{% if parts %}
+<div class="card">
+    <div class="card-body">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Part Number</th>
+                        <th>Drawing / Plate No.</th>
+                        <th>Description</th>
+                        <th>Quantity</th>
+                        <th>Unit</th>
+                        <th>Min Stock</th>
+                        <th>Location</th>
+                        <th>Last Updated</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for p in parts %}
+                    <tr>
+                        <td><strong>{{ p.part_number }}</strong></td>
+                        <td class="font-mono" style="font-size:0.82rem">{{ p.drawing_number or '—' }}</td>
+                        <td>{{ p.description }}</td>
+                        <td>
+                            <span class="qty {{ 'low' if (p.quantity <= p.min_stock and p.min_stock > 0) else 'ok' }}">
+                                {{ p.quantity }}
+                            </span>
+                        </td>
+                        <td>{{ p.unit }}</td>
+                        <td>{{ p.min_stock }}</td>
+                        <td>{{ p.location }}</td>
+                        <td>{{ p.last_updated }}</td>
+                        <td>
+                            <a href="/spares/edit/{{ p.id }}" class="btn btn-sm btn-outline">Edit</a>
+                            <form action="/spares/delete/{{ p.id }}" method="POST" style="display:inline;">
+                                <button type="submit" class="btn btn-sm btn-outline" style="color:#ef4444;border-color:#ef4444;"
+                                        onclick="return confirm('Delete this part?')">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <p class="text-muted mb-2">No spare parts registered for this machinery.</p>
+        <a href="/spares/machinery/{{ machinery.id }}/add" class="btn btn-primary">Add Spare Part</a>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
