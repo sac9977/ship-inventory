@@ -1,7 +1,7 @@
 # Ship Inventory Management System — Implementation Plan
 
 > **Developed by Chief Engineer Sachin Kadam**
-> Last updated: 25 July 2026
+> Last updated: 28 July 2026
 
 ---
 
@@ -18,20 +18,21 @@ A zero-config, offline-capable inventory management system designed for merchant
 ```
 ship-inventory/
 ├── app.py                 # Flask app — all routes, auth, context processor
-├── database.py            # SQLite schema, 40+ CRUD/query functions
+├── database.py            # SQLite schema, 40+ CRUD/query functions + backup/restore
 ├── pdf_parser.py          # PDF spare parts parser (pdfplumber + PyMuPDF fallback)
 ├── impa_parser.py         # IMPA Index PDF parser (PyMuPDF, 628+ entries)
 ├── requirements.txt       # flask, pdfplumber, PyMuPDF, werkzeug
 ├── setup.py               # Universal installer (--ship-name, --port, --reset)
 ├── healthcheck.py         # Diagnostic tool (Python, deps, DB, network)
-├── start.sh               # Launch script (reads config.txt, shows LAN IP)
+├── start.sh               # Launch script (reads config.txt, shows LAN IP, DB stats)
 ├── install.bat            # Windows double-click installer
 ├── INSTALL.html           # Visual installation guide (6 steps)
 ├── README.md              # Full documentation
 ├── IMPLEMENTATION_PLAN.md # This file
 ├── config.txt             # Runtime config (ship_name, port) — created by setup.py
 ├── ship_inventory.db      # SQLite database — auto-created on first run
-├── templates/             # 29 Jinja2 templates
+├── backups/               # Auto-backups (created on each startup, keeps last 5)
+├── templates/             # 30 Jinja2 templates
 │   ├── base.html          # Master layout — sidebar, nav, flash, ship name
 │   ├── login.html         # Standalone login page
 │   ├── dashboard.html     # Stats cards, recent transactions, low-stock alerts
@@ -54,6 +55,7 @@ ship-inventory/
 │   ├── import_stores_preview.html  # IMPA preview with editable descriptions
 │   ├── import_csv_stores.html # CSV upload for stores
 │   ├── import_csv_spares.html # CSV upload for spares (with machinery selection)
+│   ├── backup.html        # Backup & restore management page
 │   ├── reports.html       # Date-range reports with 4 sections
 │   ├── reports_print.html # Print-optimized report layout
 │   ├── crew_list.html     # User management (admin only)
@@ -87,6 +89,12 @@ ship-inventory/
 ### Relationships
 - `spare_parts.machinery_id` → `machinery.id` (CASCADE DELETE)
 - `transactions` uses polymorphic references: `item_category` + `item_id` maps to any of the 5 inventory tables
+
+### Backup Storage
+- `backups/` directory — auto-created on first startup
+- Files: `ship_inventory_YYYYMMDD_HHMMSS.db` (auto) and `upload_YYYYMMDD_HHMMSS.db` (manual upload)
+- `pre_restore_YYYYMMDD_HHMMSS.db` — safety backup created before any restore operation
+- Maximum 5 auto-backups retained (oldest rotated out)
 
 ---
 
@@ -189,7 +197,22 @@ ship-inventory/
 - [x] Recent transactions (last 10)
 - [x] Monthly usage chart (Chart.js)
 
-### 4.14 Packaging & Distribution ✅
+### 4.14 Backup & Data Protection ✅
+- [x] **Auto-backup on startup** — creates timestamped backup in `backups/` folder
+- [x] **SQLite backup API** — safe copy even if database is in use
+- [x] **Auto-rotation** — keeps last 5 backups, oldest rotated out
+- [x] **Backup & Restore page** (`/backup`) — admin-only sidebar link
+  - 📸 Create manual backup
+  - 📤 Export database (download `.db` file)
+  - 📥 Upload & restore from `.db` file
+  - 🔄 Restore from any available backup
+  - 📊 Database status (size, record counts per table)
+- [x] **Safety backup** — automatic backup created before any restore operation
+- [x] **API endpoint** `/api/db-stats` — JSON health check
+- [x] **Startup stats** — terminal shows DB size, record counts, and backup count on launch
+- [x] **Data survives** computer shutdowns, restarts, power outages (file-based SQLite)
+
+### 4.15 Packaging & Distribution ✅
 - [x] `setup.py` — universal installer with `--ship-name`, `--port`, `--reset`
 - [x] `install.bat` — Windows double-click installer
 - [x] `start.sh` — launch script with LAN IP display
@@ -201,11 +224,12 @@ ship-inventory/
 - [x] Ship name customization (stored in `config.txt`)
 - [x] Developer credit on login, footer, and print reports
 
-### 4.15 Sidebar Navigation ✅
+### 4.16 Sidebar Navigation ✅
 - [x] Auto-highlighting of current page (path-based `active_page` in context processor)
 - [x] Organized sections: Overview, Spare Parts, Stores, Consumables, Operations, Reports, Admin
 - [x] Admin-only sections hidden from regular users
 - [x] All import options accessible from sidebar
+- [x] Backup & Restore under Administration
 
 ---
 
@@ -224,7 +248,7 @@ ship-inventory/
 
 ### 5.3 SQLite Limitations
 - No concurrent write support (fine for single-ship LAN use)
-- WAL mode could improve read performance under load
+- WAL mode enabled for better read performance
 - No built-in full-text search (could add FTS5 for better search)
 
 ### 5.4 Safety Sheets
@@ -282,6 +306,7 @@ bash start.sh
    - **CSV Import** — upload prepared CSV file
    - **Manual Entry** — add items one by one
 7. Add oils, chemicals, greases as needed
+8. Backup the database (Admin → Backup & Restore → Export Database)
 
 ### Data Import Options Summary
 
@@ -292,6 +317,16 @@ bash start.sh
 | Lubricating Oils | — | — | ✅ Add form |
 | Chemicals | — | — | ✅ Add form |
 | Greases | — | — | ✅ Add form |
+
+### Data Protection
+| Feature | How It Works |
+|---------|-------------|
+| Auto-backup | Created on every startup, keeps last 5 in `backups/` |
+| Manual backup | One-click via Admin → Backup & Restore |
+| Export database | Download `.db` file for off-site storage |
+| Restore | Upload `.db` or select from backups list |
+| Power loss safety | SQLite WAL mode + auto-backup on next startup |
+| Data persistence | File-based SQLite — survives shutdowns, restarts, power outages |
 
 ### Access from Other Computers
 Open browser on any ship computer: `http://<server-ip>:8080`
@@ -317,6 +352,7 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 | PDF Import (Spare Parts) | ⚠️ Partial | CID-encoded fonts produce garbled text |
 | IMPA Index Import | ✅ Complete | 628+ entries, editable preview |
 | CSV Import (Stores + Spares) | ✅ Complete | With sample downloads |
+| Backup & Data Protection | ✅ Complete | Auto-backup, restore, export |
 | Sidebar Navigation | ✅ Complete | Auto-highlighting, all sections |
 | Packaging & Distribution | ✅ Complete | zip on Desktop |
 | Offline Operation | ✅ Complete | All assets local |
@@ -327,10 +363,10 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 ## 9. Future Enhancements (Backlog)
 
 ### Priority 1 — High Value
+- [x] ~~**Backup/restore** — One-click database backup and restore from UI~~ ✅ Done
 - [ ] **OCR-based PDF parsing** — Tesseract integration for scanned/encoded PDFs
 - [ ] **Export to Excel** — Reports and inventory lists exportable as .xlsx
 - [ ] **Stock alerts / notifications** — On-screen alerts when stock drops below minimum
-- [ ] **Backup/restore** — One-click database backup and restore from UI
 - [ ] **CSV export** — Export current inventory to CSV for backup/sharing
 
 ### Priority 2 — Useful Additions
@@ -371,6 +407,11 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 - [x] Sample CSV download (both types)
 - [x] New user creation and login
 - [x] Transaction form — spares grouped by machinery
+- [x] Auto-backup on startup
+- [x] Manual backup create
+- [x] Backup page — stats, backup list, restore
+- [x] Database export (download .db)
+- [x] DB stats API endpoint
 
 ### Edge Cases (to verify on ship)
 - [ ] Multiple users accessing simultaneously
@@ -381,6 +422,7 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 - [ ] Windows deployment (encoding, path separators)
 - [ ] Tablet/phone responsive layout
 - [ ] Print reports from different browsers
+- [ ] Power failure recovery (verify auto-backup restored data)
 
 ---
 
@@ -405,3 +447,8 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 | 25 Jul 2026 | CSV import for stores and spares | app.py, import_csv_stores.html, import_csv_spares.html |
 | 25 Jul 2026 | Sample CSV download routes | app.py (download-sample endpoint) |
 | 25 Jul 2026 | Sidebar: CSV import links, IMPA import link, auto-highlighting | base.html, app.py (context processor) |
+| 28 Jul 2026 | Auto-backup on startup (keeps last 5, SQLite backup API) | database.py, app.py |
+| 28 Jul 2026 | Backup & Restore page (create, download, restore, upload) | app.py, templates/backup.html |
+| 28 Jul 2026 | Database export endpoint (`/export-db`) | app.py |
+| 28 Jul 2026 | DB stats API (`/api/db-stats`) and startup printout | database.py, app.py |
+| 28 Jul 2026 | Sidebar: Backup & Restore link under Administration | templates/base.html |
