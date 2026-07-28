@@ -451,4 +451,5 @@ The launch script (`start.sh`) displays the LAN IP automatically.
 | 28 Jul 2026 | Backup & Restore page (create, download, restore, upload) | app.py, templates/backup.html |
 | 28 Jul 2026 | Database export endpoint (`/export-db`) | app.py |
 | 28 Jul 2026 | DB stats API (`/api/db-stats`) and startup printout | database.py, app.py |
-| 28 Jul 2026 | Sidebar: Backup & Restore link under Administration | templates/base.html |
+|| 28 Jul 2026 | Sidebar: Backup & Restore link under Administration | templates/base.html |
+| 28 Jul 2026 | Redesign UI: Linear dark-mode theme (Inter Variable, translucent surfaces, indigo-violet accent) | static/style.css, templates/base.html, templates/crew_list.html, templates/import_stores_preview.html |
