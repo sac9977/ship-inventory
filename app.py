@@ -30,6 +30,9 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # 7 days
 db.init_db()
 db.ensure_admin_user()  # Create default admin login if none exists
 
+# ── Auto-backup on startup ──
+db.auto_backup()
+
 
 # ══════════════════════════════════════════════════════════════
 #  AUTHENTICATION SYSTEM
@@ -1037,6 +1040,93 @@ def download_sample_csv(sample_type):
     )
 
 
+# ── Backup & Restore ──
+
+@app.route('/backup')
+@admin_required
+def backup_page():
+    backups = db.list_backups()
+    stats = db.get_db_stats()
+    return render_template('backup.html', backups=backups, stats=stats)
+
+
+@app.route('/backup/create', methods=['POST'])
+@admin_required
+def backup_create():
+    try:
+        db.auto_backup()
+        flash('Backup created successfully.', 'success')
+    except Exception as e:
+        flash(f'Backup failed: {str(e)}', 'danger')
+    return redirect(url_for('backup_page'))
+
+
+@app.route('/backup/download/<filename>')
+@admin_required
+def backup_download(filename):
+    import re
+    if not re.match(r'^[\w\-]+\.db$', filename):
+        abort(400)
+    backup_path = os.path.join(db.BACKUP_DIR, filename)
+    if not os.path.exists(backup_path):
+        flash('Backup not found.', 'danger')
+        return redirect(url_for('backup_page'))
+    from flask import send_file
+    return send_file(backup_path, as_attachment=True, download_name=filename)
+
+
+@app.route('/backup/restore/<filename>', methods=['POST'])
+@admin_required
+def backup_restore(filename):
+    import re
+    if not re.match(r'^[\w\-]+\.db$', filename):
+        abort(400)
+    backup_path = os.path.join(db.BACKUP_DIR, filename)
+    try:
+        db.restore_backup(backup_path)
+        flash(f'Restored from {filename}. Restart the app for changes to take effect.', 'success')
+    except Exception as e:
+        flash(f'Restore failed: {str(e)}', 'danger')
+    return redirect(url_for('backup_page'))
+
+
+@app.route('/backup/upload', methods=['POST'])
+@admin_required
+def backup_upload():
+    if 'backup_file' not in request.files:
+        flash('No file selected.', 'danger')
+        return redirect(url_for('backup_page'))
+    file = request.files['backup_file']
+    if file.filename == '' or not file.filename.endswith('.db'):
+        flash('Please upload a .db file.', 'danger')
+        return redirect(url_for('backup_page'))
+    try:
+        os.makedirs(db.BACKUP_DIR, exist_ok=True)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        save_path = os.path.join(db.BACKUP_DIR, f'upload_{timestamp}.db')
+        file.save(save_path)
+        # Restore from uploaded file
+        db.restore_backup(save_path)
+        flash('Database restored from uploaded file. Restart the app.', 'success')
+    except Exception as e:
+        flash(f'Upload failed: {str(e)}', 'danger')
+    return redirect(url_for('backup_page'))
+
+
+@app.route('/export-db')
+@admin_required
+def export_db():
+    from flask import send_file
+    return send_file(db.DB_PATH, as_attachment=True,
+                     download_name=f'ship_inventory_{datetime.now().strftime("%Y%m%d")}.db')
+
+
+@app.route('/api/db-stats')
+@login_required
+def api_db_stats():
+    return jsonify(db.get_db_stats())
+
+
 # ── Reports ──
 
 @app.route('/reports')
@@ -1239,6 +1329,8 @@ def inject_globals():
         active_page = 'machinery'
     elif 'crew' in path:
         active_page = 'crew'
+    elif 'backup' in path:
+        active_page = 'backup'
     elif 'reports' in path:
         active_page = 'reports'
     elif 'change-password' in path:
@@ -1281,5 +1373,17 @@ if __name__ == '__main__':
     ship = _cfg["ship_name"]
     if ship:
         print(f"\n  ⚓ {ship} — Inventory System")
-    print(f"\n  🌐 Running on http://0.0.0.0:{port}\n")
+    print(f"  🌐 Running on http://0.0.0.0:{port}")
+
+    # Print database stats
+    stats = db.get_db_stats()
+    if 'error' not in stats:
+        print(f"  💾 Database: {stats['db_size']//1024}KB")
+        for table, count in stats['tables'].items():
+            if count and count != 'N/A' and count > 0:
+                print(f"     {table}: {count} records")
+    backups = db.list_backups()
+    if backups:
+        print(f"  📁 Backups: {len(backups)} available (latest: {backups[0]['modified']})")
+    print()
     app.run(host='0.0.0.0', port=port, debug=False)

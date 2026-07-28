@@ -1,0 +1,127 @@
+{% extends 'base.html' %}
+
+{% block title %}Backup & Restore{% endblock %}
+{% block top_bar_title %}💾 Backup & Restore{% endblock %}
+
+{% block content %}
+<!-- Database Stats -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h2>📊 Database Status</h2>
+    </div>
+    <div class="card-body">
+        <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:12px;">
+            <div class="stat-card">
+                <div class="stat-label">DB Size</div>
+                <div class="stat-value">{{ (stats.db_size // 1024) }}KB</div>
+            </div>
+            {% for table, count in stats.tables.items() %}
+            {% if count and count != 'N/A' %}
+            <div class="stat-card">
+                <div class="stat-label">{{ table | replace('_', ' ') | title }}</div>
+                <div class="stat-value">{{ count }}</div>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- Actions -->
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px;">
+    <!-- Create Backup -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📸 Create Backup</h2>
+        </div>
+        <div class="card-body">
+            <p style="font-size:0.85rem; color:var(--steel-600); margin-bottom:12px;">
+                Save a snapshot of the current database. Backups are stored locally on the server.
+            </p>
+            <form method="POST" action="/backup/create" style="margin:0;">
+                <button type="submit" class="btn btn-primary">📸 Create Backup Now</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Export Database -->
+    <div class="card">
+        <div class="card-header">
+            <h2>📤 Export Database</h2>
+        </div>
+        <div class="card-body">
+            <p style="font-size:0.85rem; color:var(--steel-600); margin-bottom:12px;">
+                Download the entire database file to your computer. Keep it as an off-site backup.
+            </p>
+            <a href="/export-db" class="btn btn-primary">📤 Download Database</a>
+        </div>
+    </div>
+</div>
+
+<!-- Upload & Restore -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h2>📥 Upload & Restore</h2>
+    </div>
+    <div class="card-body">
+        <p style="font-size:0.85rem; color:var(--steel-600); margin-bottom:12px;">
+            Upload a <code>.db</code> file to restore the database. <strong>This will overwrite current data.</strong>
+            A safety backup of the current database is created automatically before restore.
+        </p>
+        <form method="POST" action="/backup/upload" enctype="multipart/form-data" style="display:flex; gap:12px; align-items:end;">
+            <div class="form-group" style="flex:1; margin:0;">
+                <label for="backup_file">Select .db file</label>
+                <input type="file" class="form-control" id="backup_file" name="backup_file" accept=".db" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="height:38px;"
+                    onclick="return confirm('This will overwrite current data. Continue?');">
+                📥 Restore
+            </button>
+        </form>
+    </div>
+</div>
+
+<!-- Available Backups -->
+<div class="card">
+    <div class="card-header">
+        <h2>📁 Available Backups</h2>
+    </div>
+    <div class="card-body">
+        {% if backups %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Backup File</th>
+                        <th>Date & Time</th>
+                        <th>Size</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in backups %}
+                    <tr>
+                        <td><code>{{ b.filename }}</code></td>
+                        <td>{{ b.modified }}</td>
+                        <td>{{ (b.size // 1024) }}KB</td>
+                        <td style="white-space:nowrap;">
+                            <a href="/backup/download/{{ b.filename }}" class="btn btn-sm btn-outline">📥 Download</a>
+                            <form method="POST" action="/backup/restore/{{ b.filename }}"
+                                  style="display:inline;" onclick="event.stopPropagation();">
+                                <button type="submit" class="btn btn-sm btn-outline"
+                                        onclick="return confirm('Restore from {{ b.filename }}? Current data will be replaced.');">
+                                    🔄 Restore
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p style="color:var(--steel-500); font-style:italic;">No backups yet. Create one above.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

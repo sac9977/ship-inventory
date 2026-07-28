@@ -4,10 +4,86 @@ Handles all SQLite operations for spares, stores, machinery, and transactions.
 """
 import sqlite3
 import os
+import shutil
+import glob
 from datetime import datetime, date
 from contextlib import contextmanager
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ship_inventory.db')
+BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
+MAX_BACKUPS = 5
+
+
+def auto_backup():
+    """Create automatic backup on startup. Keeps last MAX_BACKUPS."""
+    if not os.path.exists(DB_PATH):
+        return
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    backup_path = os.path.join(BACKUP_DIR, f'ship_inventory_{timestamp}.db')
+    try:
+        # Use SQLite backup API for safe copy even if DB is in use
+        src = sqlite3.connect(DB_PATH)
+        dst = sqlite3.connect(backup_path)
+        src.backup(dst)
+        dst.close()
+        src.close()
+        # Rotate: keep only last MAX_BACKUPS
+        backups = sorted(glob.glob(os.path.join(BACKUP_DIR, 'ship_inventory_*.db')))
+        while len(backups) > MAX_BACKUPS:
+            os.remove(backups.pop(0))
+    except Exception:
+        pass  # Don't crash on backup failure
+
+
+def restore_backup(backup_path):
+    """Restore database from a backup file."""
+    if not os.path.exists(backup_path):
+        raise FileNotFoundError(f'Backup not found: {backup_path}')
+    # Create a safety backup of current DB before restore
+    if os.path.exists(DB_PATH):
+        safety_path = os.path.join(BACKUP_DIR, f'pre_restore_{datetime.now().strftime("%Y%m%d_%H%M%S")}.db')
+        os.makedirs(BACKUP_DIR, exist_ok=True)
+        shutil.copy2(DB_PATH, safety_path)
+    shutil.copy2(backup_path, DB_PATH)
+
+
+def list_backups():
+    """List available backup files with sizes and dates."""
+    if not os.path.exists(BACKUP_DIR):
+        return []
+    backups = []
+    for f in sorted(glob.glob(os.path.join(BACKUP_DIR, 'ship_inventory_*.db')), reverse=True):
+        stat = os.stat(f)
+        backups.append({
+            'path': f,
+            'filename': os.path.basename(f),
+            'size': stat.st_size,
+            'modified': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+        })
+    return backups
+
+
+def get_db_stats():
+    """Get database statistics for health check."""
+    stats = {'db_path': DB_PATH, 'db_size': 0, 'tables': {}}
+    if not os.path.exists(DB_PATH):
+        stats['error'] = 'Database file not found'
+        return stats
+    stats['db_size'] = os.path.getsize(DB_PATH)
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        for table in ['machinery', 'spare_parts', 'stores', 'transactions', 'crew',
+                       'lubricating_oils', 'chemicals', 'greases']:
+            try:
+                count = conn.execute(f'SELECT COUNT(*) FROM {table}').fetchone()[0]
+                stats['tables'][table] = count
+            except Exception:
+                stats['tables'][table] = 'N/A'
+        conn.close()
+    except Exception as e:
+        stats['error'] = str(e)
+    return stats
 
 
 def get_db():
