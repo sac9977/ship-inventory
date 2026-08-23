@@ -1,0 +1,61 @@
+<!-- Splash Screen / Cinematic Layer -->
+<div id="splash-screen">
+    <div class="scroll-container" id="scroll-container">
+        <!-- Scene 1: The Master Video -->
+        <section class="scene">
+            <video class="scene-video" autoplay muted playsinline loop>
+                <source src="/static/assets/video/ship_inventory_splash.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <div class="scene-overlay">
+                <h1 id="splash-title">The Navigator's World</h1>
+                <p id="splash-subtitle">Charting the course of your inventory.</p>
+            </div>
+        </section>
+    </div>
+    
+    <!-- Exit Button (for testing) -->
+    <button onclick="dismissSplash()" class="btn btn-outline-light position-absolute bottom-0 end-0 m-4" style="z-index: 10000;">Skip Intro</button>
+</div>
+
+<main id="app-content" style="display: none; opacity: 0; transition: opacity 0.8s ease-in;">
+    <!-- The real dashboard will load here -->
+    <div class="p-4">
+        <h1 class="fw-bold text-navy">Command Center</h1>
+        <p>Inventory Overview</p>
+    </div>
+</main>
+
+<script>
+    const splash = document.getElementById('splash-screen');
+    const content = document.getElementById('app-content');
+    const video = document.querySelector('.scene-video');
+
+    function dismissSplash() {
+        splash.style.opacity = '0';
+        splash.style.transition = 'opacity 0.8s ease-out';
+        setTimeout(() => {
+            splash.style.display = 'none';
+            content.style.display = 'block';
+            // Force reflow
+            content.offsetHeight; 
+            content.style.opacity = '1';
+        }, 800);
+    }
+
+    // Automatic dismissal after video ends
+    if (video) {
+        video.onended = function() {
+            dismissSplash();
+        };
+    }
+
+    // Fallback for browsers where autoplay might be blocked
+    window.addEventListener('load', () => {
+        setTimeout(() => {
+            if (splash.style.display !== 'none') {
+                console.log('Video auto-play failed, providing manual skip fallback.');
+            }
+        }, 5000);
+    });
+</script>
