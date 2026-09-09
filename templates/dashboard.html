@@ -82,7 +82,7 @@
 <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 24px;">
     <!-- Left: Recent Transactions -->
     <div class="card">
-        <div class="card-header">Recent Transactions</div>
+        <div class="card-header">Recent Transactions <span class="text-muted" style="font-size:0.7rem;">(chart bars below are clickable)</span></div>
         <div class="card-body">
             <div class="table-container">
                 <table class="table">
@@ -136,6 +136,7 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
 {% block scripts %}
 <script src="/static/js/inline_rob.js"></script>
@@ -174,6 +175,17 @@
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (!elements.length) { return; }
+                const dsLabel = evt.chart.data.datasets[elements[0].datasetIndex].label;
+                const type = dsLabel === 'Receipts' ? 'receipt' : 'usage';
+                const r = monthRange(elements[0].index);
+                window.location = '/transactions?type=' + type +
+                    '&date_from=' + r.from + '&date_to=' + r.to;
+            },
+            onHover: (evt, elements) => {
+                evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+            },
             plugins: {
                 legend: {
                     position: 'top'
@@ -190,7 +202,7 @@
         }
     });
 
-    // Stores-only consumption chart (usage transactions, red bars)
+    // Stores-only consumption chart (usage transactions, orange bars)
     const storesData = {{ stats.stores_monthly_usage | tojson }};
     const storesByMonth = {};
     storesData.forEach(d => { storesByMonth[parseInt(d.month, 10)] = d.usage; });
@@ -215,13 +227,29 @@
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            onClick: (evt, elements) => {
+                if (!elements.length) { return; }
+                const r = monthRange(elements[0].index);
+                window.location = '/transactions?type=usage&category=stores' +
+                    '&date_from=' + r.from + '&date_to=' + r.to;
+            },
+            onHover: (evt, elements) => {
+                evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+            },
             plugins: { legend: { position: 'top' } },
             scales: {
                 y: { beginAtZero: true, ticks: { stepSize: 1 } }
             }
         }
     });
-</script>
-{% endblock %}
 
+    // First/last day of a chart month, for transaction drill-down links
+    function monthRange(idx) {
+        const year = {{ stats.current_year }};
+        const m = idx + 1;
+        const last = new Date(year, m, 0).getDate();
+        const pad = n => String(n).padStart(2, '0');
+        return { from: year + '-' + pad(m) + '-01', to: year + '-' + pad(m) + '-' + pad(last) };
+    }
+</script>
 {% endblock %}
