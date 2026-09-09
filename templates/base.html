@@ -61,6 +61,9 @@
                     <span class="link-icon">📋</span> Import CSV
                 </a>
                 {% if session.get('user_role') == 'admin' %}
+                <a href="/import-count-sheet" class="sidebar-link {% if active_page == 'import_count_sheet' %}active{% endif %}">
+                    <span class="link-icon">📝</span> Import Count Sheet
+                </a>
                 <a href="/stock-settings" class="sidebar-link {% if active_page == 'stock_settings' %}active{% endif %}">
                     <span class="link-icon">📦</span> Stock Settings
                 </a>

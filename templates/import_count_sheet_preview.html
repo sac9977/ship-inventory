@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+
+{% block title %}Count Sheet Preview{% endblock %}
+{% block top_bar_title %}📋 Count Sheet Review — {{ filename }}{% endblock %}
+
+{% block content %}
+<form method="POST" action="/import-count-sheet-confirm" id="reconcileForm">
+    <input type="hidden" name="rows_json" id="rowsJson" value='{{ rows|tojson }}'>
+
+    <div class="card mb-3">
+        <div class="card-header flex-between">
+            <h2>Review Changes — {{ rows | length }} to apply,
+                {{ no_change | length }} already match,
+                {{ unmatched | length }} unmatched</h2>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-outline" onclick="toggleAll(true)">Select all</button>
+                <button type="button" class="btn btn-sm btn-outline" onclick="toggleAll(false)">Deselect all</button>
+            </div>
+        </div>
+        <div class="card-body" style="padding:0;">
+            <div style="max-height:480px; overflow-y:auto;">
+                <table class="table" style="margin:0;">
+                    <thead>
+                        <tr>
+                            <th style="width:36px;">Apply</th>
+                            <th>Code</th>
+                            <th>Item</th>
+                            <th>Category</th>
+                            <th class="text-end">Book</th>
+                            <th class="text-end">Counted</th>
+                            <th class="text-end">Δ</th>
+                            <th>Remarks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for r in rows %}
+                        <tr {% if r.flagged %}style="background:rgba(231,76,60,0.08);"{% endif %}>
+                            <td><input type="checkbox" class="row-check" data-index="{{ loop.index0 }}"
+                                       checked {% if r.flagged %}data-flagged="1"{% endif %}></td>
+                            <td class="part-num">{{ r.code }}</td>
+                            <td><strong>{{ r.name }}</strong>
+                                {% if r.flagged %}<span class="rob-low-badge">⚠ {{ r.pct }}% off</span>{% endif %}
+                            </td>
+                            <td><span class="badge-status">{{ r.category }}</span></td>
+                            <td class="text-end">{{ r.current }}</td>
+                            <td class="text-end" style="font-weight:700;">{{ r.counted }}</td>
+                            <td class="text-end" style="color:{{ '#27ae60' if r.delta > 0 else ('#e74c3c' if r.delta < 0 else 'inherit') }}; font-weight:700;">
+                                {{ '+' ~ r.delta if r.delta > 0 else r.delta }}</td>
+                            <td style="font-size:0.78rem;" class="text-muted">{{ r.remarks or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                        {% if not rows %}
+                        <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">
+                            No quantity changes found in this count sheet.
+                        </td></tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    {% if no_change %}
+    <div class="card mb-3">
+        <div class="card-header"><h2>✓ Already Match ({{ no_change | length }})</h2></div>
+        <div class="card-body">
+            <p class="text-muted" style="font-size:0.85rem; margin-bottom:8px;">
+                Counted quantity equals the book value — no action taken.
+                {% set sample = no_change[:10] %}
+                {% if no_change | length > 10 %}Showing first 10.{% endif %}
+            </p>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                {% for r in sample %}
+                <span class="badge-status">{{ r.code }} · {{ r.name | truncate(28) }}</span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {% if unmatched %}
+    <div class="card mb-3" style="border-left: 4px solid #d97706;">
+        <div class="card-header"><h2>⚠ Unmatched / Unreadable ({{ unmatched | length }})</h2></div>
+        <div class="card-body">
+            <p class="text-muted" style="font-size:0.85rem; margin-bottom:8px;">
+                These rows could not be matched to a catalog item (or the quantity was
+                unreadable). They are <strong>not applied</strong> — fix the code or add
+                the item to the catalog, then re-upload.
+            </p>
+            <div style="max-height:220px; overflow-y:auto;">
+                <table class="table" style="margin:0;">
+                    <thead><tr><th>Code</th><th>Counted</th><th>Remarks</th></tr></thead>
+                    <tbody>
+                        {% for r in unmatched[:50] %}
+                        <tr>
+                            <td class="part-num">{{ r.code or '(blank)' }}</td>
+                            <td>{{ r.counted }}</td>
+                            <td class="text-muted" style="font-size:0.78rem;">
+                                {{ r.error or r.remarks or '' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="form-actions">
+        <a href="/import-count-sheet" class="btn btn-outline">← Back</a>
+        <a href="/stores" class="btn btn-outline">Cancel</a>
+        <button type="submit" class="btn btn-success" {% if not rows %}disabled{% endif %}>
+            ✓ Apply {{ rows | length }} change(s) to ROB
+        </button>
+    </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleAll(state) {
+    document.querySelectorAll('.row-check').forEach(function (cb) {
+        cb.checked = state;
+    });
+}
+
+document.getElementById('reconcileForm').addEventListener('submit', function () {
+    var rows = JSON.parse(document.getElementById('rowsJson').value);
+    document.querySelectorAll('.row-check').forEach(function (cb) {
+        if (rows[cb.dataset.index] !== undefined) {
+            rows[cb.dataset.index].selected = cb.checked;
+        }
+    });
+    document.getElementById('rowsJson').value = JSON.stringify(rows);
+});
+</script>
+{% endblock %}

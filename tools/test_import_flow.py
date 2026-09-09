@@ -36,14 +36,13 @@ assert m, 'import flash missing'
 imp, skp = (int(m.group(i).replace(',', '')) for i in (1, 2))
 assert (imp, skp) in [(14862, 0), (0, 14862)], 'unexpected import split'
 
-# 3. counts + zero ROB
+# 3. counts (later tests may have edited quantities, so only row count + batches)
 con = __import__('sqlite3').connect(db.DB_PATH)
-total, zero = con.execute(
-    "SELECT COUNT(*), SUM(quantity = 0) FROM stores").fetchone()
+total = con.execute("SELECT COUNT(*) FROM stores").fetchone()[0]
 batches = con.execute("SELECT DISTINCT import_batch FROM stores").fetchall()
 con.close()
-print(f'3. rows: {total}, zero-ROB: {zero}, batches: {batches}')
-assert total == 14862 and zero == 14862, 'row/zero counts wrong'
+print(f'3. rows: {total}, batches: {batches}')
+assert total == 14862, 'row count wrong'
 
 # 4. paginated list (page 1, page 2, huge page number clamps)
 r = client.get('/stores')

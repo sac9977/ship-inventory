@@ -577,6 +577,43 @@ def get_store_category_counts():
         return [dict(r) for r in rows]
 
 
+def apply_stock_take(updates, corrected_by=''):
+    """Bulk-set ROB from a physical stock take. Each update needs item_id,
+    counted (new quantity) and remarks. Logs one audit row per change.
+    Returns number of items actually changed."""
+    changed = 0
+    with db_connection() as conn:
+        for u in updates:
+            try:
+                item_id = int(u['item_id'])
+                new = int(u['counted'])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if new < 0:
+                continue
+            row = conn.execute(
+                "SELECT quantity FROM stores WHERE id = ?", (item_id,)
+            ).fetchone()
+            if not row:
+                continue
+            old = row['quantity']
+            if old == new:
+                continue
+            conn.execute(
+                "UPDATE stores SET quantity = ?, "
+                "last_updated = datetime('now', 'localtime') WHERE id = ?",
+                (new, item_id))
+            conn.execute(
+                "INSERT INTO stock_corrections (item_category, item_id, "
+                "old_quantity, new_quantity, reason, corrected_by) "
+                "VALUES ('stores', ?, ?, ?, ?, ?)",
+                (item_id, old, new,
+                 'stock take' + (f": {u['remarks']}" if u.get('remarks') else ''),
+                 corrected_by))
+            changed += 1
+    return changed
+
+
 def adjust_store_quantity(item_id, new_quantity, reason='', corrected_by=''):
     """Set a store item's ROB to an exact value and log the correction.
     Returns (ok, old_quantity or error-message)."""

@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block title %}Import Count Sheet{% endblock %}
+{% block top_bar_title %}📋 Import Count Sheet — Physical Stock Take{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h2>📥 Reconcile a Physical Stock Take</h2>
+    </div>
+    <div class="card-body">
+        <p class="mb-2">
+            Upload a tally sheet (CSV) of physical counts. Each row is matched against
+            the Stores catalog by IMPA code, and you review every change before
+            anything is applied. Counts are matched exactly; items whose count differs
+            from the book value by more than your <strong>flag threshold</strong> are
+            highlighted for scrutiny, not silently applied.
+        </p>
+
+        <div class="callout callout-info mb-2" style="background:var(--steel-50); border-left:3px solid var(--navy-400); padding:12px 16px; border-radius:4px; font-size:0.85rem;">
+            <strong>CSV columns:</strong> <code>impa_code</code>, <code>counted_qty</code>
+            (required) · <code>remarks</code> (optional)<br>
+            Codes are matched with or without dots (e.g. <code>33.0140</code> or
+            <code>330140</code>), with or without leading zeros. Only <strong>one row per
+            item</strong> — duplicates are ignored (first wins).
+        </div>
+
+        <p class="mb-2">
+            <a href="/download-sample/count-sheet" class="btn btn-sm btn-outline">📄 Download Sample CSV</a>
+        </p>
+
+        <form method="POST" action="/import-count-sheet" enctype="multipart/form-data">
+            <div class="form-group mb-2">
+                <label for="csv_file">Select count sheet (CSV)</label>
+                <input type="file" class="form-control" id="csv_file" name="csv_file"
+                       accept=".csv" required>
+            </div>
+            <div class="form-group mb-2" style="max-width:320px;">
+                <label for="threshold">Flag changes larger than (%)</label>
+                <input type="number" class="form-control" id="threshold"
+                       name="threshold" value="10" min="0" max="1000">
+                <small class="text-muted">A count differing from the book value by more
+                    than this percentage is flagged for review. 0 flags every change.</small>
+            </div>
+            <div class="form-actions">
+                <a href="/stores" class="btn btn-outline">Cancel</a>
+                <button type="submit" class="btn btn-primary">📤 Upload &amp; Review</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

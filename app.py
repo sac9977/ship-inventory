@@ -1069,6 +1069,12 @@ def download_sample_csv(sample_type):
         writer.writerow(['P-002', 'DWG-1470-002', 'Sealing Ring with Back-up', '20', 'pcs', '5', 'Spare Store'])
         writer.writerow(['P-003', '', 'Hex Key Set', '3', 'set', '1', 'Workshop'])
         filename = 'spares_sample.csv'
+    elif sample_type == 'count-sheet':
+        writer.writerow(['impa_code', 'counted_qty', 'remarks'])
+        writer.writerow(['33.0140', '2', 'found in locker 3'])
+        writer.writerow(['81-13', '1', 'sealant opened, part used'])
+        writer.writerow(['5901234', '6', ''])
+        filename = 'count_sheet_sample.csv'
     else:
         flash('Invalid sample type.', 'danger')
         return redirect(url_for('dashboard'))
@@ -1080,6 +1086,113 @@ def download_sample_csv(sample_type):
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
+
+
+# ── Count-Sheet Import (physical stock take) ──
+
+def _canon_impa(code):
+    """'33.0140'/'330140' -> '0330140' (same canonical form as the import prep)."""
+    import re as _re
+    d = _re.sub(r'\D', '', code or '')
+    return d.zfill(7) if 5 <= len(d) <= 7 else ''
+
+
+@app.route('/import-count-sheet', methods=['GET', 'POST'])
+@admin_required
+def import_count_sheet():
+    if request.method == 'POST':
+        if 'csv_file' not in request.files:
+            flash('No file selected.', 'danger')
+            return redirect(url_for('import_count_sheet'))
+        file = request.files['csv_file']
+        if file.filename == '' or not file.filename.lower().endswith('.csv'):
+            flash('Please upload a CSV file.', 'danger')
+            return redirect(url_for('import_count_sheet'))
+        try:
+            threshold = int(request.form.get('threshold', 10) or 10)
+        except ValueError:
+            threshold = 10
+
+        try:
+            import csv, io
+            content = file.read().decode('utf-8-sig')
+            reader = csv.DictReader(io.StringIO(content))
+
+            by_raw, by_canon = {}, {}
+            for it in db.get_all_stores():
+                code = (it.get('item_code') or '').strip()
+                if not code:
+                    continue
+                by_raw[code] = it
+                c = _canon_impa(code)
+                if c:
+                    by_canon.setdefault(c, it)
+
+            matched, unmatched, no_change = [], [], []
+            seen_ids = set()
+            for row in reader:
+                code = (row.get('impa_code') or row.get('IMPA Code')
+                        or row.get('code') or '').strip()
+                qty_s = (row.get('counted_qty') or row.get('counted')
+                         or row.get('quantity') or '').strip()
+                remarks = (row.get('remarks') or row.get('note') or '').strip()
+                if not code and not qty_s:
+                    continue
+                item = by_raw.get(code) or by_canon.get(_canon_impa(code))
+                if not item:
+                    unmatched.append({'code': code, 'counted': qty_s,
+                                      'remarks': remarks})
+                    continue
+                if item['id'] in seen_ids:
+                    continue  # duplicate count row for the same item: first wins
+                seen_ids.add(item['id'])
+                try:
+                    counted = int(float(qty_s))
+                except (TypeError, ValueError):
+                    unmatched.append({'code': code, 'counted': qty_s,
+                                      'remarks': remarks,
+                                      'error': 'unreadable quantity'})
+                    continue
+                current = item['quantity']
+                delta = counted - current
+                pct = (abs(delta) / current * 100.0) if current else \
+                    (100.0 if delta else 0.0)
+                entry = {
+                    'item_id': item['id'], 'code': item['item_code'],
+                    'name': item['name'], 'category': item['category'],
+                    'unit': item['unit'], 'current': current,
+                    'counted': counted, 'delta': delta, 'pct': round(pct),
+                    'flagged': bool(delta and pct > threshold),
+                    'remarks': remarks, 'selected': True,
+                }
+                (no_change if delta == 0 else matched).append(entry)
+
+            matched.sort(key=lambda e: (not e['flagged'], -abs(e['delta'])))
+            return render_template('import_count_sheet_preview.html',
+                                   rows=matched, no_change=no_change,
+                                   unmatched=unmatched, threshold=threshold,
+                                   filename=file.filename)
+        except Exception as e:
+            flash(f'Error parsing count sheet: {str(e)}', 'danger')
+            return redirect(url_for('import_count_sheet'))
+
+    return render_template('import_count_sheet.html')
+
+
+@app.route('/import-count-sheet-confirm', methods=['POST'])
+@admin_required
+def import_count_sheet_confirm():
+    try:
+        rows = json.loads(request.form.get('rows_json', '[]'))
+    except ValueError:
+        rows = []
+    selected = [r for r in rows if r.get('selected')]
+    applied = db.apply_stock_take(selected,
+                                  corrected_by=session.get('user_name', ''))
+    skipped = len(selected) - applied
+    flash(f'Stock take applied: {applied} item(s) updated '
+          f'({skipped} already matched the count).', 'success')
+    return redirect(url_for('stores_list'))
 
 
 # ── Stock Settings ──
