@@ -224,6 +224,16 @@ def init_db():
                 last_updated TEXT DEFAULT (datetime('now', 'localtime'))
             );
         ''')
+        # Indexes for large store catalogs (thousands of rows)
+        conn.executescript('''
+            CREATE INDEX IF NOT EXISTS idx_stores_category ON stores(category);
+            CREATE INDEX IF NOT EXISTS idx_stores_name ON stores(name);
+            CREATE INDEX IF NOT EXISTS idx_stores_item_code ON stores(item_code);
+        ''')
+        # Migration: tag rows with the import batch they came from
+        cols = [r['name'] for r in conn.execute("PRAGMA table_info(stores)").fetchall()]
+        if 'import_batch' not in cols:
+            conn.execute("ALTER TABLE stores ADD COLUMN import_batch TEXT DEFAULT ''")
 
 
 # ── Machinery CRUD ──
@@ -435,6 +445,65 @@ def search_stores(query):
             (f'%{query}%', f'%{query}%', f'%{query}%')
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_stores_page(category=None, search='', page=1, per_page=50):
+    """One page of stores plus total count, for the paginated list view."""
+    with db_connection() as conn:
+        where, params = [], []
+        if search:
+            like = f"%{search}%"
+            where.append("(name LIKE ? OR description LIKE ? OR item_code LIKE ?)")
+            params += [like, like, like]
+        elif category:
+            where.append("category = ?")
+            params.append(category)
+        clause = ("WHERE " + " AND ".join(where)) if where else ""
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM stores {clause}", params
+        ).fetchone()['c']
+        offset = (page - 1) * per_page
+        rows = conn.execute(
+            f"SELECT * FROM stores {clause} "
+            "ORDER BY category, name LIMIT ? OFFSET ?",
+            params + [per_page, offset]
+        ).fetchall()
+        return [dict(r) for r in rows], total
+
+
+def ensure_import_batch_column():
+    """Make sure the import_batch column exists (for pre-migration DBs)."""
+    with db_connection() as conn:
+        cols = [r['name'] for r in conn.execute("PRAGMA table_info(stores)").fetchall()]
+        if 'import_batch' not in cols:
+            conn.execute("ALTER TABLE stores ADD COLUMN import_batch TEXT DEFAULT ''")
+
+
+def get_existing_store_codes():
+    """Set of non-empty item_codes already present (for fast import dedupe)."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT item_code FROM stores WHERE item_code != ''"
+        ).fetchall()
+        return {r['item_code'] for r in rows}
+
+
+def bulk_insert_stores(items, import_batch=''):
+    """Insert many store rows in one transaction. Returns count inserted."""
+    if not items:
+        return 0
+    with db_connection() as conn:
+        conn.executemany(
+            "INSERT INTO stores (item_code, name, description, category, "
+            "quantity, unit, min_stock, location, import_batch) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(it.get('item_code', ''), it.get('name', ''),
+              it.get('description', ''), it.get('category', 'General'),
+              it.get('quantity', 0), it.get('unit', 'pcs'),
+              it.get('min_stock', 0), it.get('location', ''), import_batch)
+             for it in items]
+        )
+        return len(items)
 
 
 # ── Transactions ──

@@ -329,14 +329,24 @@ def spare_delete(part_id):
 def stores_list():
     category = request.args.get('category', '')
     search = request.args.get('search', '').strip()
-    if search:
-        items = db.search_stores(search)
-    else:
-        items = db.get_all_stores(category=category if category else None)
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    PER_PAGE = 50
+    items, total = db.get_stores_page(
+        category=category if category else None,
+        search=search,
+        page=page,
+        per_page=PER_PAGE,
+    )
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
     categories = db.get_store_categories()
     low_stock = db.get_low_stock_stores()
     return render_template('stores_list.html', items=items, categories=categories,
-                           current_category=category, search=search, low_stock=low_stock)
+                           current_category=category, search=search, low_stock=low_stock,
+                           page=page, total_pages=total_pages, total_items=total,
+                           per_page=PER_PAGE)
 
 
 @app.route('/stores/add', methods=['GET', 'POST'])
@@ -901,41 +911,47 @@ def import_csv_stores():
             import csv, io
             content = file.read().decode('utf-8-sig')  # handle BOM
             reader = csv.DictReader(io.StringIO(content))
-            imported = 0
+
+            db.ensure_import_batch_column()
+            existing_codes = db.get_existing_store_codes()
+            batch = datetime.now().strftime('import-%Y%m%d-%H%M%S')
+
+            to_insert = []
+            seen_codes = set()
             skipped = 0
             for row in reader:
                 impa_code = (row.get('impa_code', '') or row.get('IMPA Code', '') or row.get('item_code', '')).strip()
                 name = (row.get('name', '') or row.get('Name', '') or row.get('description', '')).strip()
                 description = (row.get('description', '') or row.get('Description', '') or name).strip()
                 category = (row.get('category', '') or row.get('Category', '') or 'General').strip()
-                quantity = row.get('quantity', row.get('Quantity', '0')).strip()
+                quantity = (row.get('quantity', '') or row.get('Quantity', '') or '0').strip()
                 unit = (row.get('unit', '') or row.get('Unit', '') or 'pcs').strip()
-                min_stock = row.get('min_stock', row.get('Min Stock', '0')).strip()
+                min_stock = (row.get('min_stock', '') or row.get('Min Stock', '') or '0').strip()
                 location = (row.get('location', '') or row.get('Location', '') or '').strip()
 
                 if not name:
                     skipped += 1
                     continue
 
-                # Check for duplicate IMPA code
+                # Fast dedupe: skip codes already in DB or already seen in this file
                 if impa_code:
-                    existing = db.search_stores(impa_code)
-                    if existing:
+                    if impa_code in existing_codes or impa_code in seen_codes:
                         skipped += 1
                         continue
+                    seen_codes.add(impa_code)
 
-                db.create_store_item(
-                    name=name,
-                    item_code=impa_code,
-                    description=description,
-                    category=category,
-                    quantity=int(quantity) if quantity.isdigit() else 0,
-                    unit=unit,
-                    min_stock=int(min_stock) if min_stock.isdigit() else 0,
-                    location=location,
-                )
-                imported += 1
+                to_insert.append({
+                    'item_code': impa_code,
+                    'name': name,
+                    'description': description,
+                    'category': category or 'General',
+                    'quantity': int(quantity) if quantity.isdigit() else 0,
+                    'unit': unit or 'pcs',
+                    'min_stock': int(min_stock) if min_stock.isdigit() else 0,
+                    'location': location,
+                })
 
+            imported = db.bulk_insert_stores(to_insert, import_batch=batch)
             flash(f'Imported {imported} store items ({skipped} skipped).', 'success')
         except Exception as e:
             flash(f'Error importing CSV: {str(e)}', 'danger')

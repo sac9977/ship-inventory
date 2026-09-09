@@ -4,7 +4,7 @@
 <div class="card">
   <div class="card-header">
     <div class="flex-between">
-      <h2>Stores</h2>
+      <h2>Stores <small class="text-muted">{{ total_items }} items</small></h2>
       <a href="/stores/add" class="btn btn-primary">Add Item</a>
     </div>
   </div>
@@ -87,7 +87,22 @@
     </table>
     {% else %}
     <div class="empty-state">
-      <p class="text-muted">No store items found. Click <strong>Add Item</strong> to create one.</p>
+      <p class="text-muted">No store items found. Click <strong>Add Item</strong> to create one, or <a href="/import-csv-stores">import a CSV</a>.</p>
+    </div>
+    {% endif %}
+
+    {% if total_pages > 1 %}
+    <div class="flex-between mt-2" style="gap: 8px;">
+      <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total_items }} items)</span>
+      <div class="btn-group">
+        {% set qbase = (request.args.get('search', '') and ('&search=' ~ (request.args.get('search') | urlencode)) or '') ~ (request.args.get('category', '') and ('&category=' ~ (request.args.get('category') | urlencode)) or '') %}
+        {% if page > 1 %}
+        <a href="/stores?page={{ page - 1 }}{{ qbase }}" class="btn btn-sm btn-outline">&larr; Prev</a>
+        {% endif %}
+        {% if page < total_pages %}
+        <a href="/stores?page={{ page + 1 }}{{ qbase }}" class="btn btn-sm btn-outline">Next &rarr;</a>
+        {% endif %}
+      </div>
     </div>
     {% endif %}
   </div>
