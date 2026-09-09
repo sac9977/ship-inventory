@@ -1,0 +1,79 @@
+{% extends 'base.html' %}
+
+{% block title %}Stock Settings{% endblock %}
+{% block top_bar_title %}📦 Stock Settings — Min ROB per Category{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <h2>⚙️ Minimum ROB (Remaining On Board) Defaults</h2>
+    </div>
+    <div class="card-body">
+        <p style="font-size:0.85rem; color:var(--steel-600); margin-bottom:12px;">
+            Set the default minimum stock per category. When applied, only items whose
+            <strong>min stock is still 0</strong> are updated — values you typed on an
+            item's edit form are never overwritten. Items at or below their min stock
+            appear as <span style="color:var(--danger); font-weight:600;">Low ROB alerts</span> on the dashboard.
+        </p>
+
+        <form method="POST" action="/stock-settings">
+            <div class="card mb-3" style="border:1px solid var(--steel-200);">
+                <div class="card-body" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+                    <label style="font-weight:600;">Global default for any other category:</label>
+                    <input type="number" class="form-control" name="default_min"
+                           value="{{ settings.default }}" min="0" max="9999"
+                           style="max-width:110px;">
+                </div>
+            </div>
+
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Items</th>
+                        <th>Min stock not yet set</th>
+                        <th style="max-width:140px;">Default min ROB</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat, val in settings.categories.items() | sort %}
+                    <tr>
+                        <td><strong>{{ cat }}</strong></td>
+                        <td>{{ counts.get(cat, {}).get('cnt', 0) }}</td>
+                        <td>
+                            {% set unset = counts.get(cat, {}).get('unset', 0) %}
+                            {% if unset %}<span style="color:var(--warning, #d97706); font-weight:600;">{{ unset }}</span>
+                            {% else %}<span class="text-muted">0</span>{% endif %}
+                        </td>
+                        <td><input type="number" class="form-control" name="cat_{{ cat }}"
+                                   value="{{ val }}" min="0" max="9999"></td>
+                    </tr>
+                    {% endfor %}
+                    {% for c in counts if c.category not in settings.categories %}
+                    <tr>
+                        <td><strong>{{ c.category }}</strong> <span class="text-muted">(no override)</span></td>
+                        <td>{{ c.cnt }}</td>
+                        <td>
+                            {% if c.unset %}<span style="color:var(--warning, #d97706); font-weight:600;">{{ c.unset }}</span>
+                            {% else %}<span class="text-muted">0</span>{% endif %}
+                        </td>
+                        <td><input type="number" class="form-control" name="cat_{{ c.category }}"
+                                   value="" placeholder="uses global default" min="0" max="9999"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div style="display:flex; gap:10px; margin-top:14px;">
+                <button type="submit" name="apply" value="1" class="btn btn-primary">
+                    💾 Save &amp; Apply to unset items
+                </button>
+                <button type="submit" name="apply" value="0" class="btn btn-outline">
+                    Save only
+                </button>
+                <a href="/stores" class="btn btn-outline">Back to Stores</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

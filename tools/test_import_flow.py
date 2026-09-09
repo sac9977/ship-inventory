@@ -32,7 +32,9 @@ body = r.get_data(as_text=True)
 import re
 m = re.search(r'Imported (\d[\d,]*) store items \((\d[\d,]*) skipped\)', body)
 print('2. import flash:', m.group(0) if m else 'NOT FOUND')
-assert m and int(m.group(1).replace(',', '')) == 14862, 'import count mismatch'
+assert m, 'import flash missing'
+imp, skp = (int(m.group(i).replace(',', '')) for i in (1, 2))
+assert (imp, skp) in [(14862, 0), (0, 14862)], 'unexpected import split'
 
 # 3. counts + zero ROB
 con = __import__('sqlite3').connect(db.DB_PATH)

@@ -33,9 +33,43 @@
         <div class="stat-info">
             <div class="stat-value">{{ stats.low_spares + stats.low_stores }}</div>
             <div class="stat-label">Low Stock Alerts</div>
+            {% if stats.low_stores %}
+            <div class="stat-label" style="margin-top:4px;"><a href="/stores?low=1" style="color:#e74c3c; font-weight:600;">{{ stats.low_stores }} store items low →</a></div>
+            {% endif %}
         </div>
     </div>
 </div>
+
+{% if stats.low_stores_list %}
+<!-- Low ROB Alert Panel -->
+<div class="card" style="border-left: 4px solid #e74c3c; margin-bottom: 24px;">
+    <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h2>⚠️ Low ROB — worst {{ stats.low_stores_list | length }} of {{ stats.low_stores }} low store items</h2>
+        <a href="/stores?low=1" class="btn btn-sm btn-outline">View all</a>
+    </div>
+    <div class="card-body" style="padding:0;">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr><th>Code</th><th>Item</th><th>Category</th><th>ROB</th><th>Min</th><th></th></tr>
+                </thead>
+                <tbody>
+                    {% for i in stats.low_stores_list %}
+                    <tr>
+                        <td class="part-num">{{ i.item_code }}</td>
+                        <td><strong>{{ i.name }}</strong></td>
+                        <td><span class="badge-status">{{ i.category }}</span></td>
+                        <td style="color:#e74c3c; font-weight:700;">{{ i.quantity }}</td>
+                        <td>{{ i.min_stock }}</td>
+                        <td><a href="/stores/edit/{{ i.id }}" class="btn btn-sm btn-outline">Edit</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
 
 <!-- Two-column grid -->
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">

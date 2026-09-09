@@ -13,6 +13,31 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ship_invento
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
 MAX_BACKUPS = 5
 
+# Initial min-stock guesses per store category (used on first init; the admin
+# can tune them on the Stock Settings page afterwards).
+DEFAULT_CATEGORY_MIN_STOCKS = {
+    'Provisions': 5,
+    'Medical': 3,
+    'Safety': 2,
+    'Fire Fighting': 2,
+    'Galley': 2,
+    'Cabin & Cleaning': 2,
+    'Paints': 2,
+    'Chemicals': 2,
+    'Tableware': 2,
+    'Electrical': 1,
+    'Hand Tools': 1,
+    'Cutting Tools': 1,
+    'Piping & Valves': 1,
+    'Fasteners': 10,
+    'Mooring & Anchoring': 1,
+    'Rigging & Hardware': 1,
+    'Lifting Gear': 1,
+    'Measuring': 1,
+    'Welding': 1,
+    'Insulation': 1,
+}
+
 
 def auto_backup():
     """Create automatic backup on startup. Keeps last MAX_BACKUPS."""
@@ -234,6 +259,22 @@ def init_db():
         cols = [r['name'] for r in conn.execute("PRAGMA table_info(stores)").fetchall()]
         if 'import_batch' not in cols:
             conn.execute("ALTER TABLE stores ADD COLUMN import_batch TEXT DEFAULT ''")
+        # Min-stock configuration (per-category defaults + global fallback)
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS category_min_stocks (
+                category TEXT PRIMARY KEY,
+                min_stock INTEGER NOT NULL
+            );
+        ''')
+        conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('min_stock_default', '2')")
+        for cat, val in DEFAULT_CATEGORY_MIN_STOCKS.items():
+            conn.execute(
+                "INSERT OR IGNORE INTO category_min_stocks (category, min_stock) VALUES (?, ?)",
+                (cat, val))
 
 
 # ── Machinery CRUD ──
@@ -428,15 +469,6 @@ def get_store_categories():
         return [r['category'] for r in rows]
 
 
-def get_low_stock_stores():
-    with db_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM stores WHERE quantity <= min_stock AND min_stock > 0 "
-            "ORDER BY category, name"
-        ).fetchall()
-        return [dict(r) for r in rows]
-
-
 def search_stores(query):
     with db_connection() as conn:
         rows = conn.execute(
@@ -447,10 +479,12 @@ def search_stores(query):
         return [dict(r) for r in rows]
 
 
-def get_stores_page(category=None, search='', page=1, per_page=50):
+def get_stores_page(category=None, search='', page=1, per_page=50, low_only=False):
     """One page of stores plus total count, for the paginated list view."""
     with db_connection() as conn:
         where, params = [], []
+        if low_only:
+            where.append("(min_stock > 0 AND quantity <= min_stock)")
         if search:
             like = f"%{search}%"
             where.append("(name LIKE ? OR description LIKE ? OR item_code LIKE ?)")
@@ -463,9 +497,11 @@ def get_stores_page(category=None, search='', page=1, per_page=50):
             f"SELECT COUNT(*) AS c FROM stores {clause}", params
         ).fetchone()['c']
         offset = (page - 1) * per_page
+        order = ("(quantity * 1.0 / min_stock), category, name" if low_only
+                 else "category, name")
         rows = conn.execute(
             f"SELECT * FROM stores {clause} "
-            "ORDER BY category, name LIMIT ? OFFSET ?",
+            f"ORDER BY {order} LIMIT ? OFFSET ?",
             params + [per_page, offset]
         ).fetchall()
         return [dict(r) for r in rows], total
@@ -504,6 +540,92 @@ def bulk_insert_stores(items, import_batch=''):
              for it in items]
         )
         return len(items)
+
+
+def count_low_stock_stores():
+    """Number of store items at/below min stock."""
+    with db_connection() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) AS c FROM stores WHERE quantity <= min_stock AND min_stock > 0"
+        ).fetchone()['c']
+
+
+def default_min_stock_for(category):
+    """Effective min-stock default for a category (override else global)."""
+    s = get_stock_settings()
+    return s['categories'].get(category or '', s['default'])
+
+
+def get_store_category_counts():
+    """Per-category item counts plus how many items still lack a min stock."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT category, COUNT(*) AS cnt, "
+            "SUM(CASE WHEN min_stock = 0 THEN 1 ELSE 0 END) AS unset "
+            "FROM stores GROUP BY category ORDER BY category"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ── Min-stock settings & low-ROB alerts ──
+
+def get_stock_settings():
+    """Return {'default': int, 'categories': {category: int}}."""
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key = 'min_stock_default'"
+        ).fetchone()
+        default = int(row['value']) if row else 0
+        cats = {r['category']: r['min_stock']
+                for r in conn.execute(
+                    "SELECT category, min_stock FROM category_min_stocks")}
+        return {'default': default, 'categories': cats}
+
+
+def save_stock_settings(default, categories):
+    """Persist the global default and per-category min stocks."""
+    with db_connection() as conn:
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES ('min_stock_default', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (str(int(default)),))
+        for cat, val in categories.items():
+            conn.execute(
+                "INSERT INTO category_min_stocks (category, min_stock) VALUES (?, ?) "
+                "ON CONFLICT(category) DO UPDATE SET min_stock = excluded.min_stock",
+                (cat, int(val)))
+
+
+def apply_min_stock_defaults():
+    """Fill min_stock only where it is still 0, so manual edits survive.
+    Returns number of rows updated."""
+    s = get_stock_settings()
+    with db_connection() as conn:
+        cur = conn.cursor()
+        updated = 0
+        for cat, val in s['categories'].items():
+            cur.execute(
+                "UPDATE stores SET min_stock = ? WHERE category = ? AND min_stock = 0",
+                (val, cat))
+            updated += max(cur.rowcount, 0)
+        cur.execute(
+            "UPDATE stores SET min_stock = ? WHERE min_stock = 0",
+            (s['default'],))
+        updated += max(cur.rowcount, 0)
+        return updated
+
+
+def get_low_stock_stores(limit=None):
+    """Store items at/below min stock. Optional limit for dashboard panels."""
+    with db_connection() as conn:
+        sql = ("SELECT * FROM stores WHERE quantity <= min_stock AND min_stock > 0 "
+               "ORDER BY (quantity * 1.0 / min_stock), category, name")
+        params = ()
+        if limit:
+            sql += " LIMIT ?"
+            params = (limit,)
+        rows = conn.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ── Transactions ──
@@ -893,6 +1015,12 @@ def get_dashboard_stats():
             (str(now.year),)
         ).fetchall()
 
+        low_list = conn.execute(
+            "SELECT id, item_code, name, category, quantity, min_stock, unit "
+            "FROM stores WHERE quantity <= min_stock AND min_stock > 0 "
+            "ORDER BY (quantity * 1.0 / min_stock), category, name LIMIT 12"
+        ).fetchall()
+
         return {
             'machinery_count': machinery_count,
             'spare_count': spare_count,
@@ -904,6 +1032,7 @@ def get_dashboard_stats():
             'grease_count': grease_count,
             'low_spares': low_spares,
             'low_stores': low_stores,
+            'low_stores_list': [dict(r) for r in low_list],
             'recent_transactions': [dict(r) for r in recent],
             'monthly_usage': [dict(r) for r in monthly_usage],
             'current_year': now.year,

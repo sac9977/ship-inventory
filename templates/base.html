@@ -59,6 +59,11 @@
                 <a href="/import-csv-stores" class="sidebar-link {% if active_page == 'import_csv_stores' %}active{% endif %}">
                     <span class="link-icon">📋</span> Import CSV
                 </a>
+                {% if session.get('user_role') == 'admin' %}
+                <a href="/stock-settings" class="sidebar-link {% if active_page == 'stock_settings' %}active{% endif %}">
+                    <span class="link-icon">📦</span> Stock Settings
+                </a>
+                {% endif %}
             </div>
 
             <!-- Consumables -->

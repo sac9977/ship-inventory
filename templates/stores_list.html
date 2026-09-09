@@ -28,11 +28,21 @@
       </div>
     </form>
 
+    {% if low_only %}
+    <div class="card mb-2" style="border-left: 4px solid #e74c3c;">
+      <div class="card-body">
+        <strong>⚠ Low ROB view:</strong>
+        <span class="text-muted">Showing {{ total_items }} item(s) at or below their minimum stock, worst first.</span>
+        <a href="/stores" class="btn btn-sm btn-outline" style="margin-left:8px;">Show all items</a>
+      </div>
+    </div>
+    {% endif %}
+
     {% if low_stock %}
     <div class="card mb-2" style="border-left: 4px solid #e74c3c;">
       <div class="card-body">
         <strong>⚠ Low Stock Warning:</strong>
-        <span class="text-muted">The following items are below minimum stock levels:</span>
+        <span class="text-muted">Worst {{ low_stock | length }} low item(s) — see the <a href="/stores?low=1">full low-ROB list</a>.</span>
         <ul class="mb-2">
           {% for item in low_stock %}
           <li><strong>{{ item.name }}</strong> — Quantity: {{ item.quantity }} (Min: {{ item.min_stock }})</li>
@@ -95,7 +105,7 @@
     <div class="flex-between mt-2" style="gap: 8px;">
       <span class="text-muted">Page {{ page }} of {{ total_pages }} ({{ total_items }} items)</span>
       <div class="btn-group">
-        {% set qbase = (request.args.get('search', '') and ('&search=' ~ (request.args.get('search') | urlencode)) or '') ~ (request.args.get('category', '') and ('&category=' ~ (request.args.get('category') | urlencode)) or '') %}
+        {% set qbase = (request.args.get('search', '') and ('&search=' ~ (request.args.get('search') | urlencode)) or '') ~ (request.args.get('category', '') and ('&category=' ~ (request.args.get('category') | urlencode)) or '') ~ (request.args.get('low', '') == '1' and '&low=1' or '') %}
         {% if page > 1 %}
         <a href="/stores?page={{ page - 1 }}{{ qbase }}" class="btn btn-sm btn-outline">&larr; Prev</a>
         {% endif %}

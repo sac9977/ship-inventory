@@ -329,6 +329,7 @@ def spare_delete(part_id):
 def stores_list():
     category = request.args.get('category', '')
     search = request.args.get('search', '').strip()
+    low_only = request.args.get('low', '') == '1'
     try:
         page = max(1, int(request.args.get('page', 1)))
     except ValueError:
@@ -339,14 +340,15 @@ def stores_list():
         search=search,
         page=page,
         per_page=PER_PAGE,
+        low_only=low_only,
     )
     total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
     categories = db.get_store_categories()
-    low_stock = db.get_low_stock_stores()
+    low_stock = db.get_low_stock_stores(limit=8)
     return render_template('stores_list.html', items=items, categories=categories,
                            current_category=category, search=search, low_stock=low_stock,
                            page=page, total_pages=total_pages, total_items=total,
-                           per_page=PER_PAGE)
+                           per_page=PER_PAGE, low_only=low_only)
 
 
 @app.route('/stores/add', methods=['GET', 'POST'])
@@ -364,7 +366,8 @@ def store_add():
             category=request.form.get('category', 'General').strip() or 'General',
             quantity=int(request.form.get('quantity', 0) or 0),
             unit=request.form.get('unit', 'pcs').strip() or 'pcs',
-            min_stock=int(request.form.get('min_stock', 0) or 0),
+            min_stock=int(request.form.get('min_stock', 0) or 0)
+            or db.default_min_stock_for(request.form.get('category', 'General').strip() or 'General'),
             location=request.form.get('location', '').strip(),
         )
         flash(f'Store item "{name}" added.', 'success')
@@ -884,6 +887,7 @@ def import_stores_confirm():
                             description=description,
                         )
                         imported += 1
+            db.apply_min_stock_defaults()
             flash(f'Imported {imported} store items ({len(checked) - imported} duplicates skipped).', 'success')
         else:
             flash('No items selected for import.', 'warning')
@@ -952,6 +956,7 @@ def import_csv_stores():
                 })
 
             imported = db.bulk_insert_stores(to_insert, import_batch=batch)
+            db.apply_min_stock_defaults()
             flash(f'Imported {imported} store items ({skipped} skipped).', 'success')
         except Exception as e:
             flash(f'Error importing CSV: {str(e)}', 'danger')
@@ -1054,6 +1059,40 @@ def download_sample_csv(sample_type):
         mimetype='text/csv',
         headers={'Content-Disposition': f'attachment; filename={filename}'}
     )
+
+
+# ── Stock Settings ──
+
+@app.route('/stock-settings', methods=['GET', 'POST'])
+@admin_required
+def stock_settings():
+    """Per-category min-stock defaults; applying fills min_stock = 0 rows only."""
+    if request.method == "POST":
+        try:
+            default = int(request.form.get('default_min', '0') or 0)
+        except ValueError:
+            default = 0
+        cats = {}
+        for key, val in request.form.items():
+            if key.startswith('cat_'):
+                cat = key[4:]
+                if not val.strip():
+                    continue  # empty = inherit global default
+                try:
+                    cats[cat] = int(val or 0)
+                except ValueError:
+                    cats[cat] = 0
+        db.save_stock_settings(default, cats)
+        if request.form.get('apply') == '1':
+            updated = db.apply_min_stock_defaults()
+            flash(f'Saved. Applied defaults to {updated} item(s) that had no min stock.', 'success')
+        else:
+            flash('Stock settings saved.', 'success')
+        return redirect(url_for('stock_settings'))
+
+    settings = db.get_stock_settings()
+    counts = {c['category']: c for c in db.get_store_category_counts()}
+    return render_template('stock_settings.html', settings=settings, counts=counts)
 
 
 # ── Backup & Restore ──
