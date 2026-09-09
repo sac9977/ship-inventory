@@ -405,6 +405,27 @@ def store_edit(item_id):
     return render_template('store_form.html', item=item, categories=categories)
 
 
+@app.route('/stores/adjust/<int:item_id>', methods=['POST'])
+@login_required
+def store_adjust(item_id):
+    """Inline ROB correction: set an exact quantity and log an audit row."""
+    data = request.get_json(silent=True) or {}
+    if 'quantity' not in data:
+        return {'ok': False, 'error': 'quantity is required'}, 400
+    ok, result = db.adjust_store_quantity(
+        item_id,
+        data.get('quantity'),
+        reason=(data.get('reason') or '').strip(),
+        corrected_by=session.get('user_name', ''),
+    )
+    if not ok:
+        return {'ok': False, 'error': result}, 400
+    item = db.get_store_item(item_id)
+    low = bool(item and item['min_stock'] and item['quantity'] <= item['min_stock'])
+    return {'ok': True, 'old_quantity': result, 'quantity': item['quantity'],
+            'min_stock': item['min_stock'], 'low': low}
+
+
 @app.route('/stores/delete/<int:item_id>', methods=['POST'])
 @login_required
 def store_delete(item_id):

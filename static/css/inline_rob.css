@@ -1,0 +1,55 @@
+/* Inline ROB editing */
+.rob-cell {
+  white-space: nowrap;
+}
+
+.rob-qty {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.rob-edit-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.8rem;
+  opacity: 0.45;
+  padding: 0 2px;
+  vertical-align: middle;
+}
+
+.rob-edit-btn:hover {
+  opacity: 1;
+}
+
+.rob-low-badge {
+  display: inline-block;
+  background-color: #e74c3c;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+  text-transform: uppercase;
+}
+
+.rob-editor {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.rob-input {
+  width: 90px;
+  padding: 2px 6px !important;
+  font-size: 0.85rem;
+}
+
+.rob-save-btn,
+.rob-cancel-btn {
+  padding: 2px 8px !important;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}

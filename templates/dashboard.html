@@ -42,7 +42,7 @@
 
 {% if stats.low_stores_list %}
 <!-- Low ROB Alert Panel -->
-<div class="card" style="border-left: 4px solid #e74c3c; margin-bottom: 24px;">
+<div class="card" style="border-left: 4px solid #e74c3c; margin-bottom: 24px;" data-rob-autorefresh>
     <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
         <h2>⚠️ Low ROB — worst {{ stats.low_stores_list | length }} of {{ stats.low_stores }} low store items</h2>
         <a href="/stores?low=1" class="btn btn-sm btn-outline">View all</a>
@@ -59,7 +59,11 @@
                         <td class="part-num">{{ i.item_code }}</td>
                         <td><strong>{{ i.name }}</strong></td>
                         <td><span class="badge-status">{{ i.category }}</span></td>
-                        <td style="color:#e74c3c; font-weight:700;">{{ i.quantity }}</td>
+                        <td class="rob-cell" data-id="{{ i.id }}">
+                            <span class="rob-qty" style="color:#e74c3c;">{{ i.quantity }}</span>
+                            {% if i.min_stock and i.quantity <= i.min_stock %}<span class="rob-low-badge">Low</span>{% endif %}
+                            <button type="button" class="rob-edit-btn" title="Edit ROB">✎</button>
+                        </td>
                         <td>{{ i.min_stock }}</td>
                         <td><a href="/stores/edit/{{ i.id }}" class="btn btn-sm btn-outline">Edit</a></td>
                     </tr>
@@ -118,6 +122,7 @@
 </div>
 
 {% block scripts %}
+<script src="/static/js/inline_rob.js"></script>
 <script>
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const monthlyData = {{ stats.monthly_usage | tojson }};

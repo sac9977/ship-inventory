@@ -74,11 +74,12 @@
           <td><strong>{{ i.name }}</strong></td>
           <td class="part-desc">{{ i.description or '-' }}</td>
           <td><span class="badge-status">{{ i.category }}</span></td>
-          <td class="part-qty{% if i.min_stock and i.quantity <= i.min_stock %}" style="color: #e74c3c; font-weight: bold;{% endif %}">
-            {{ i.quantity }}
+          <td class="rob-cell{% if i.min_stock and i.quantity <= i.min_stock %}" style="color: #e74c3c; font-weight: bold;{% endif %}" data-id="{{ i.id }}">
+            <span class="rob-qty">{{ i.quantity }}</span>
             {% if i.min_stock and i.quantity <= i.min_stock %}
-            <span class="badge-status" style="background-color: #e74c3c; color: #fff;">Low</span>
+            <span class="rob-low-badge">Low</span>
             {% endif %}
+            <button type="button" class="rob-edit-btn" title="Edit ROB">✎</button>
           </td>
           <td>{{ i.unit or '-' }}</td>
           <td>{{ i.min_stock or '-' }}</td>
@@ -117,4 +118,8 @@
     {% endif %}
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/inline_rob.js"></script>
 {% endblock %}

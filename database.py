@@ -269,6 +269,16 @@ def init_db():
                 category TEXT PRIMARY KEY,
                 min_stock INTEGER NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS stock_corrections (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                item_category TEXT NOT NULL,
+                item_id INTEGER NOT NULL,
+                old_quantity INTEGER NOT NULL,
+                new_quantity INTEGER NOT NULL,
+                reason TEXT DEFAULT '',
+                corrected_by TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
+            );
         ''')
         conn.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('min_stock_default', '2')")
         for cat, val in DEFAULT_CATEGORY_MIN_STOCKS.items():
@@ -565,6 +575,36 @@ def get_store_category_counts():
             "FROM stores GROUP BY category ORDER BY category"
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def adjust_store_quantity(item_id, new_quantity, reason='', corrected_by=''):
+    """Set a store item's ROB to an exact value and log the correction.
+    Returns (ok, old_quantity or error-message)."""
+    try:
+        new_quantity = int(new_quantity)
+    except (TypeError, ValueError):
+        return False, 'Quantity must be a whole number'
+    if new_quantity < 0:
+        return False, 'Quantity cannot be negative'
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT quantity FROM stores WHERE id = ?", (item_id,)
+        ).fetchone()
+        if not row:
+            return False, 'Item not found'
+        old = row['quantity']
+        if old == new_quantity:
+            return True, old
+        conn.execute(
+            "UPDATE stores SET quantity = ?, "
+            "last_updated = datetime('now', 'localtime') WHERE id = ?",
+            (new_quantity, item_id))
+        conn.execute(
+            "INSERT INTO stock_corrections (item_category, item_id, "
+            "old_quantity, new_quantity, reason, corrected_by) "
+            "VALUES ('stores', ?, ?, ?, ?, ?)",
+            (item_id, old, new_quantity, reason, corrected_by))
+        return True, old
 
 
 # ── Min-stock settings & low-ROB alerts ──
