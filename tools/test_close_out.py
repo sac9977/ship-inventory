@@ -10,6 +10,8 @@ os.chdir(__file__.rsplit('/tools/', 1)[0])
 
 import app as appmod  # noqa: E402
 import database as db  # noqa: E402
+db.update_user_password(1, 'admin')  # dev fixture: default login, clears force-change flag
+
 
 client = appmod.app.test_client()
 r = client.post('/login', data={'username': 'admin', 'password': 'admin'},
@@ -51,6 +53,13 @@ now = datetime.now()
 con.execute("DELETE FROM transactions WHERE remarks IN ('deck work','galley')")
 con.commit()
 base = {i['id']: month_usage(i['id'], now.year, now.month) for i in items[:2]}
+
+# Ensure the usage fixture can't be rejected by the insufficient-stock guard:
+# top both items up first (receipts are excluded from consumption data).
+for _i in items[:2]:
+    client.post('/transaction', data={'transaction_type': 'receipt',
+                'item_category': 'stores', 'item_id': f'stores:{_i["id"]}',
+                'quantity': '25', 'crew_name': 'Stock'}, follow_redirects=True)
 
 # Fixture: this month's usage + a correction
 client.post('/transaction', data={'transaction_type': 'receipt',

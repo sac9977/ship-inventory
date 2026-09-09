@@ -60,6 +60,7 @@
                         <td>
                             <a href="/spares/edit/{{ p.id }}" class="btn btn-sm btn-outline">Edit</a>
                             <form action="/spares/delete/{{ p.id }}" method="POST" style="display:inline;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline" style="color:#ef4444;border-color:#ef4444;"
                                         onclick="return confirm('Delete this part?')">Delete</button>
                             </form>

@@ -192,7 +192,8 @@ def init_db():
                 username TEXT DEFAULT '' UNIQUE,
                 password_hash TEXT DEFAULT '',
                 role TEXT DEFAULT 'user' CHECK(role IN ('admin', 'user')),
-                active INTEGER DEFAULT 1
+                active INTEGER DEFAULT 1,
+                must_change_password INTEGER DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_spare_parts_machinery ON spare_parts(machinery_id);
@@ -207,6 +208,29 @@ def init_db():
             conn.execute("ALTER TABLE spare_parts ADD COLUMN drawing_number TEXT DEFAULT ''")
         except Exception:
             pass  # Column already exists
+
+        # Migration: force-change flag on crew (existing databases)
+        try:
+            conn.execute(
+                "ALTER TABLE crew ADD COLUMN must_change_password INTEGER DEFAULT 0")
+        except Exception:
+            pass  # Column already exists
+
+        # Security backfill: force a password change for any account still
+        # using the shipped default password.
+        import hashlib as _hashlib
+        for _row in conn.execute(
+                "SELECT id, password_hash FROM crew "
+                "WHERE active = 1 AND password_hash LIKE '%$%' "
+                "AND must_change_password = 0").fetchall():
+            try:
+                _salt, _h = _row['password_hash'].split('$', 1)
+                if _hashlib.sha256((_salt + 'admin').encode()).hexdigest() == _h:
+                    conn.execute(
+                        "UPDATE crew SET must_change_password = 1 WHERE id = ?",
+                        (_row['id'],))
+            except Exception:
+                pass
 
         # ── Lubricating Oils ──
         conn.executescript('''
@@ -1134,20 +1158,29 @@ def verify_user_password(user_id, current_password):
 
 
 def update_user_password(user_id, new_password):
-    """Update a user's password."""
+    """Update a user's password and clear any forced-change flag."""
     import hashlib, secrets
     salt = secrets.token_hex(16)
     h = hashlib.sha256((salt + new_password).encode()).hexdigest()
     password_hash = f"{salt}${h}"
     with db_connection() as conn:
         conn.execute(
-            "UPDATE crew SET password_hash = ? WHERE id = ?",
+            "UPDATE crew SET password_hash = ?, must_change_password = 0 WHERE id = ?",
             (password_hash, user_id)
         )
 
 
+def set_must_change_password(user_id, flag=1):
+    """Set/clear the forced-password-change flag (no hash change)."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE crew SET must_change_password = ? WHERE id = ?",
+            (1 if flag else 0, user_id))
+
+
 def ensure_admin_user():
-    """Create a default admin user if no users with login exist."""
+    """Create a default admin user if no users with login exist.
+    The default 'admin' login is created flagged for a forced password change."""
     with db_connection() as conn:
         count = conn.execute(
             "SELECT COUNT(*) as c FROM crew WHERE active = 1 AND password_hash != ''"
@@ -1159,11 +1192,19 @@ def ensure_admin_user():
             password_hash = f"{salt}${h}"
             try:
                 conn.execute(
-                    "INSERT INTO crew (name, rank, username, password_hash, role) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO crew (name, rank, username, password_hash, role, "
+                    "must_change_password) VALUES (?, ?, ?, ?, ?, 1)",
                     ('Administrator', 'Chief Engineer', 'admin', password_hash, 'admin')
                 )
             except Exception:
                 pass  # Already exists
+
+
+def get_user(user_id):
+    """One crew member as a dict, or None."""
+    with db_connection() as conn:
+        row = conn.execute("SELECT * FROM crew WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
 
 
 # ── Dashboard Stats ──

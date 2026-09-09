@@ -17,6 +17,7 @@
         </p>
 
         <form method="POST" action="/stock-settings">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="card mb-3" style="border:1px solid var(--steel-200);">
                 <div class="card-body" style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
                     <label style="font-weight:600;">Global default for any other category:</label>

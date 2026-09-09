@@ -17,6 +17,7 @@
         {% endif %}
 
         <form method="POST" action="{{ url_for('import_confirm') }}" id="importForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="parts_json" id="partsJson"
                    value="{{ result.parts|tojson }}">
 

@@ -30,6 +30,7 @@
         </p>
 
         <form method="POST" action="/import-count-sheet" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group mb-2">
                 <label for="csv_file">Select count sheet (CSV)</label>
                 <input type="file" class="form-control" id="csv_file" name="csv_file"

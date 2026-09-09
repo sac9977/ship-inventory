@@ -39,6 +39,7 @@
                 Save a snapshot of the current database. Backups are stored locally on the server.
             </p>
             <form method="POST" action="/backup/create" style="margin:0;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-primary">📸 Create Backup Now</button>
             </form>
         </div>
@@ -69,6 +70,7 @@
             A safety backup of the current database is created automatically before restore.
         </p>
         <form method="POST" action="/backup/upload" enctype="multipart/form-data" style="display:flex; gap:12px; align-items:end;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group" style="flex:1; margin:0;">
                 <label for="backup_file">Select .db file</label>
                 <input type="file" class="form-control" id="backup_file" name="backup_file" accept=".db" required>
@@ -108,6 +110,7 @@
                             <a href="/backup/download/{{ b.filename }}" class="btn btn-sm btn-outline">📥 Download</a>
                             <form method="POST" action="/backup/restore/{{ b.filename }}"
                                   style="display:inline;" onclick="event.stopPropagation();">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-sm btn-outline"
                                         onclick="return confirm('Restore from {{ b.filename }}? Current data will be replaced.');">
                                     🔄 Restore

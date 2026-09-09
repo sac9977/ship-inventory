@@ -29,9 +29,13 @@
   }
 
   function save(cell, itemId, newValue, input) {
+    var meta = document.querySelector('meta[name="csrf-token"]');
     fetch('/stores/adjust/' + itemId, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': meta ? meta.getAttribute('content') : ''
+      },
       body: JSON.stringify({ quantity: newValue, reason: 'inline edit' })
     })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })

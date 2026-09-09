@@ -27,3 +27,7 @@ Thumbs.db
 *.db-shm
 *.db-wal
 impa_codes.json
+
+# Secrets (never commit)
+.secret_key
+.env

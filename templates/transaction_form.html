@@ -7,6 +7,7 @@
   </div>
   <div class="card-body">
     <form method="POST" action="/transaction" id="txnForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       {# Transaction Type #}
       <div class="form-group mb-2">
         <label>Transaction Type</label>

@@ -12,6 +12,7 @@
   </div>
   <div class="card-body">
     <form method="POST" action="{{ url_for('spare_edit', part_id=part.id) if part else url_for('spare_add', machinery_id=machinery.id) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="form-row three">
         <div class="form-group">
           <label for="part_number">Part Number</label>

@@ -10,6 +10,7 @@
     </div>
     <div class="card-body">
         <form method="POST" action="/import-stores-confirm" id="importForm">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="items_json" id="itemsJson"
                    value='{{ items|tojson }}'>
 

@@ -28,6 +28,7 @@
             <form method="POST" action="{{ url_for('machinery_delete', machinery_id=machinery.id) }}"
                   style="display:inline;"
                   onsubmit="return confirm('Are you sure you want to delete this machinery and all its spare parts?');">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-danger btn-sm">🗑️ Delete</button>
             </form>
             <a href="{{ url_for('spare_add', machinery_id=machinery.id) }}" class="btn btn-success btn-sm">➕ Add Spare Part</a>
@@ -80,6 +81,7 @@
                                 <form method="POST" action="{{ url_for('spare_delete', part_id=p.id) }}"
                                       style="display:inline;"
                                       onsubmit="return confirm('Are you sure you want to delete this spare part?');">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                     <button type="submit" class="btn btn-danger btn-sm">🗑️</button>
                                 </form>
                             </div>

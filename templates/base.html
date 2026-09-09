@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Dashboard{% endblock %} — {% if ship_name %}{{ ship_name }}{% else %}Ship Inventory{% endif %}</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;510;590;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
     <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">

@@ -21,6 +21,7 @@
         </p>
 
         <form method="POST" action="/import-csv-stores" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group mb-2">
                 <label for="csv_file">Select CSV File</label>
                 <input type="file" class="form-control" id="csv_file" name="csv_file" accept=".csv" required>

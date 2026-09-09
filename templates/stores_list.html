@@ -88,6 +88,7 @@
             <div class="btn-group">
               <a href="/stores/edit/{{ i.id }}" class="btn btn-sm btn-outline">Edit</a>
               <form method="POST" action="/stores/delete/{{ i.id }}" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this item?');">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button type="submit" class="btn btn-sm btn-danger">Delete</button>
               </form>
             </div>

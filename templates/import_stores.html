@@ -16,6 +16,7 @@
         </div>
 
         <form method="POST" action="/import-stores" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group mb-2">
                 <label for="pdf_file">Select IMPA Index PDF</label>
                 <input type="file" class="form-control" id="pdf_file" name="pdf_file" accept=".pdf" required>

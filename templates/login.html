@@ -111,6 +111,7 @@
             {% endwith %}
 
             <form method="POST" action="{{ url_for('login') }}{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label for="username">Username</label>
                     <input type="text" id="username" name="username" class="form-control"

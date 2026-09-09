@@ -10,6 +10,7 @@
     </div>
     <div class="card-body">
         <form method="POST" action="{{ url_for('machinery_edit', machinery_id=machinery.id) if machinery else url_for('machinery_add') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label for="name">Name *</label>
                 <input type="text" class="form-control" id="name" name="name"

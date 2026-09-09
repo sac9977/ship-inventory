@@ -12,6 +12,7 @@
   </div>
   <div class="card-body">
     <form method="POST" action="{{ '/greases/edit/' ~ item.id if item else '/greases/add' }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="form-row three">
         <div class="form-group">
           <label for="name">Name <span class="text-muted">*</span></label>

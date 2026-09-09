@@ -8,6 +8,8 @@ os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import app as appmod  # noqa: E402
 import database as db  # noqa: E402
+db.update_user_password(1, 'admin')  # dev fixture: default login, clears force-change flag
+
 
 client = appmod.app.test_client()
 

@@ -9,6 +9,8 @@ os.chdir(__file__.rsplit('/tools/', 1)[0])
 
 import app as appmod  # noqa: E402
 import database as db  # noqa: E402
+db.update_user_password(1, 'admin')  # dev fixture: default login, clears force-change flag
+
 
 client = appmod.app.test_client()
 r = client.post('/login', data={'username': 'admin', 'password': 'admin'},

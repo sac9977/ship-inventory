@@ -11,6 +11,7 @@
     </div>
     <div class="card-body">
         <form method="POST" action="{{ url_for('crew_manage') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-row three">
                 <div class="form-group">
                     <label for="name">Full Name *</label>
@@ -88,6 +89,7 @@
                             <form method="POST" action="{{ url_for('crew_delete', crew_id=c.id) }}"
                                   style="display:inline;"
                                   onsubmit="return confirm('Remove {{ c.name }} from crew?');">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                                 <button type="submit" class="btn btn-danger btn-sm">🗑️ Remove</button>
                             </form>
                         </td>

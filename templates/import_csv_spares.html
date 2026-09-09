@@ -21,6 +21,7 @@
         </p>
 
         <form method="POST" action="/import-csv-spares" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group mb-2">
                 <label for="machinery_id">Assign to Machinery</label>
                 <select name="machinery_id" id="machinery_id" class="form-control"

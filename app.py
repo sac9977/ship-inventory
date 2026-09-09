@@ -22,10 +22,113 @@ import database as db
 from pdf_parser import parse_pdf
 
 app = Flask(__name__)
-app.secret_key = 'ship-inventory-secret-key-change-in-production'
+
+
+def _load_secret_key():
+    """Secret key from env var; otherwise a stable key file (never committed).
+    Set SHIP_INVENTORY_SECRET_KEY in the environment for production."""
+    env_key = os.environ.get('SHIP_INVENTORY_SECRET_KEY')
+    if env_key:
+        return env_key
+    keyfile = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.secret_key')
+    try:
+        with open(keyfile) as f:
+            stored = f.read().strip()
+        if stored:
+            return stored
+    except OSError:
+        pass
+    key = secrets.token_hex(32)
+    try:
+        fd = os.open(keyfile, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w') as f:
+            f.write(key)
+    except OSError:
+        pass  # Read-only fs: per-run key (sessions reset on restart)
+    return key
+
+
+app.secret_key = _load_secret_key()
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max upload
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # 7 days
+
+
+# ── CSRF protection ──
+
+def get_csrf_token():
+    """Per-session CSRF token, created on first use."""
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+
+@app.template_global()
+def csrf_token():
+    return get_csrf_token()
+
+
+@app.before_request
+def csrf_protect():
+    """Reject state-changing requests without a valid session token."""
+    if request.method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        token = request.form.get('_csrf_token', '') or request.headers.get('X-CSRF-Token', '')
+        if not token or token != session.get('_csrf_token'):
+            abort(400, description='Invalid or missing CSRF token. '
+                                   'Reload the page and try again.')
+
+
+@app.before_request
+def force_password_change():
+    """Users flagged with a default password may only reach the change form."""
+    if 'user_id' not in session or request.endpoint == 'static':
+        return None
+    if request.endpoint == 'change_password' or request.path == '/logout':
+        return None
+    user = db.get_user(session['user_id'])
+    if user and user.get('must_change_password'):
+        flash('For security, please change your password before continuing.', 'warning')
+        return redirect(url_for('change_password'))
+    return None
+
+
+# Test client that auto-injects CSRF tokens (browser-equivalent behaviour),
+# so the existing suites exercise real routes without per-call token plumbing.
+_flask_test_client = app.test_client
+
+
+def _test_client(*args, **kwargs):
+    client = _flask_test_client(*args, **kwargs)
+    _orig_open = client.open
+
+    def open_with_csrf(*a, **kw):
+        with client.session_transaction() as sess:
+            token = sess.get('_csrf_token')
+            if not token:
+                token = secrets.token_hex(32)
+                sess['_csrf_token'] = token
+        method = (kw.get('method') or '').upper()
+        data = kw.get('data')
+        content_type = kw.get('content_type') or ''
+        if method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+            if 'json' in content_type:
+                headers = kw.get('headers') or {}
+                if isinstance(headers, dict):
+                    headers.setdefault('X-CSRF-Token', token)
+                    kw['headers'] = headers
+            elif isinstance(data, dict):
+                data = dict(data)
+                data.setdefault('_csrf_token', token)
+                kw['data'] = data
+            elif data is None and method == 'POST':
+                kw['data'] = {'_csrf_token': token}
+        return _orig_open(*a, **kw)
+
+    client.open = open_with_csrf
+    return client
+
+
+app.test_client = _test_client
 
 # ── Initialize Database ──
 db.init_db()
@@ -98,6 +201,9 @@ def login():
             session['user_name'] = user['name']
             session['user_rank'] = user['rank']
             session['user_role'] = user.get('role', 'user')
+            if user.get('must_change_password'):
+                flash('Your account uses a default password. Please set a new one.', 'warning')
+                return redirect(url_for('change_password'))
             next_url = request.args.get('next', url_for('dashboard'))
             flash(f'Welcome, {user["name"]}!', 'success')
             return redirect(next_url)
@@ -125,8 +231,13 @@ def change_password():
 
         if not db.verify_user_password(session['user_id'], current):
             flash('Current password is incorrect.', 'danger')
-        elif len(new_pass) < 4:
-            flash('New password must be at least 4 characters.', 'danger')
+        elif len(new_pass) < 8:
+            flash('New password must be at least 8 characters.', 'danger')
+        elif new_pass.lower() in ('admin', 'password', 'changeme', 'ship12345',
+                                  '12345678', '123456789'):
+            flash('That password is too common. Choose something unique.', 'danger')
+        elif new_pass == current:
+            flash('New password must differ from the current one.', 'danger')
         elif new_pass != confirm:
             flash('New passwords do not match.', 'danger')
         else:

@@ -9,6 +9,7 @@
   </div>
   <div class="card-body">
     <form method="POST" action="{{ '/stores/edit/' ~ item.id if item else '/stores/add' }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="form-row three">
         <div class="form-group">
           <label for="item_code">Item Code</label>
