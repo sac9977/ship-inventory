@@ -865,6 +865,82 @@ def get_transactions(item_category=None, transaction_type=None,
         return [dict(r) for r in rows]
 
 
+def get_stores_consumption(year=None, month=None, date_from=None, date_to=None):
+    """Stores usage aggregated per item, with per-category totals.
+    Usage transactions only (receipts are tracked by the inventory report)."""
+    with db_connection() as conn:
+        if date_from and date_to:
+            where = "t.created_at >= ? AND t.created_at <= ?"
+            params = [date_from + ' 00:00:00', date_to + ' 23:59:59']
+            period_label = f'{date_from} to {date_to}'
+        elif date_from:
+            where = "t.created_at >= ?"
+            params = [date_from + ' 00:00:00']
+            period_label = f'from {date_from}'
+        elif date_to:
+            where = "t.created_at <= ?"
+            params = [date_to + ' 23:59:59']
+            period_label = f'up to {date_to}'
+        elif year and month:
+            where = "t.created_at LIKE ?"
+            params = [f'{year}-{month:02d}%']
+            period_label = f'{month:02d}/{year}'
+        elif year:
+            where = "t.created_at LIKE ?"
+            params = [f'{year}%']
+            period_label = str(year)
+        else:
+            where = "1=1"
+            params = []
+            period_label = 'all time'
+
+        rows = conn.execute(
+            "SELECT st.category, st.item_code, st.name, st.unit, st.id as item_id, "
+            "COUNT(t.id) as txn_count, SUM(t.quantity) as total_qty, "
+            "MAX(t.created_at) as last_used "
+            "FROM transactions t JOIN stores st ON st.id = t.item_id "
+            f"WHERE t.item_category = 'stores' AND t.transaction_type = 'usage' "
+            f"AND {where} "
+            "GROUP BY st.id ORDER BY st.category, total_qty DESC",
+            params).fetchall()
+        items = [dict(r) for r in rows]
+
+        cats = conn.execute(
+            "SELECT st.category, COUNT(t.id) as txn_count, "
+            "SUM(t.quantity) as total_qty, COUNT(DISTINCT st.id) as item_count "
+            "FROM transactions t JOIN stores st ON st.id = t.item_id "
+            f"WHERE t.item_category = 'stores' AND t.transaction_type = 'usage' "
+            f"AND {where} "
+            "GROUP BY st.category ORDER BY total_qty DESC",
+            params).fetchall()
+        categories = [dict(r) for r in cats]
+
+        grand = conn.execute(
+            "SELECT COUNT(t.id) as txn_count, COALESCE(SUM(t.quantity), 0) as total_qty, "
+            "COUNT(DISTINCT t.item_id) as item_count "
+            "FROM transactions t JOIN stores st ON st.id = t.item_id "
+            f"WHERE t.item_category = 'stores' AND t.transaction_type = 'usage' "
+            f"AND {where}", params).fetchone()
+
+        # Monthly totals (for a small trend table on the report)
+        months = conn.execute(
+            "SELECT strftime('%Y-%m', t.created_at) as month, "
+            "SUM(t.quantity) as total_qty, COUNT(t.id) as txn_count "
+            "FROM transactions t JOIN stores st ON st.id = t.item_id "
+            f"WHERE t.item_category = 'stores' AND t.transaction_type = 'usage' "
+            f"AND {where} "
+            "GROUP BY month ORDER BY month",
+            params).fetchall()
+
+        return {
+            'period_label': period_label,
+            'rows': items,  # NB: not 'items' — that collides with dict.items in Jinja
+            'categories': categories,
+            'grand': dict(grand) if grand else {},
+            'months': [dict(m) for m in months],
+        }
+
+
 def get_report_data(year=None, month=None, date_from=None, date_to=None):
     """
     Get transaction data for reports.

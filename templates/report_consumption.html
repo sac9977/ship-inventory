@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% set active_page = 'reports' %}
+
+{% block title %}Stores Consumption{% endblock %}
+{% block top_bar_title %}📊 Stores Consumption — {{ data.period_label }}{% endblock %}
+
+{% block content %}
+<div class="card mb-2">
+    <div class="card-header flex-between">
+        <h2>📊 Stores Consumption — {{ data.period_label }}</h2>
+        <div class="btn-group">
+            <a href="/reports/consumption/print?{{ request.query_string.decode() }}"
+               class="btn btn-primary">🖨️ Print</a>
+            <a href="/reports" class="btn btn-outline">← Inventory Report</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="/reports/consumption" class="filter-bar mb-2">
+            <div class="form-row">
+                <div class="form-group">
+                    <input type="number" class="form-control" name="year" min="2000" max="2100"
+                           value="{{ year }}" title="Year">
+                </div>
+                <div class="form-group">
+                    <select name="month" class="form-control">
+                        <option value="">Whole year</option>
+                        {% for m in range(1, 13) %}
+                        <option value="{{ m }}" {% if month|int == m %}selected{% endif %}>
+                            {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <input type="date" class="form-control" name="date_from" value="{{ date_from }}" title="Or custom range from">
+                </div>
+                <div class="form-group">
+                    <input type="date" class="form-control" name="date_to" value="{{ date_to }}" title="Or custom range to">
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-outline">Apply</button>
+                    <a href="/reports/consumption" class="btn btn-outline">Clear</a>
+                </div>
+            </div>
+            <p class="text-muted" style="font-size:0.75rem; margin:0;">
+                Leave dates empty to report by year/month. Custom range overrides year/month.
+            </p>
+        </form>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total quantity used</div>
+                <div class="stat-value">{{ data.grand.get('total_qty', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Usage transactions</div>
+                <div class="stat-value">{{ data.grand.get('txn_count', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Distinct items consumed</div>
+                <div class="stat-value">{{ data.grand.get('item_count', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Period</div>
+                <div class="stat-value" style="font-size:1rem;">{{ data.period_label }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% if data.categories %}
+<div class="card mb-2">
+    <div class="card-header"><h2>By Category</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Category</th><th class="text-end">Transactions</th><th class="text-end">Items used</th><th class="text-end">Total qty</th><th style="width:40%;">Share</th></tr></thead>
+            <tbody>
+                {% for c in data.categories %}
+                <tr>
+                    <td><span class="badge-status">{{ c.category }}</span></td>
+                    <td class="text-end">{{ c.txn_count }}</td>
+                    <td class="text-end">{{ c.item_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ c.total_qty }}</td>
+                    <td>
+                        <div style="background:rgba(99,102,241,0.15); border-radius:3px; overflow:hidden;">
+                            <div style="width:{{ (c.total_qty * 100 / (data.grand.get('total_qty') or 1)) | round(1) }}%; background:var(--navy-500, #6366f1); height:10px;"></div>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if data.months | length > 1 %}
+<div class="card mb-2">
+    <div class="card-header"><h2>Monthly Trend</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Month</th><th class="text-end">Transactions</th><th class="text-end">Qty used</th></tr></thead>
+            <tbody>
+                {% for m in data.months %}
+                <tr>
+                    <td>{{ m.month }}</td>
+                    <td class="text-end">{{ m.txn_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ m.total_qty }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h2>Item Detail — {{ data.rows | length }} item(s) used</h2></div>
+    <div class="card-body" style="padding:0;">
+        {% if data.rows %}
+        <table class="table">
+            <thead><tr><th>Category</th><th>Code</th><th>Item</th><th class="text-end">Times used</th><th class="text-end">Total qty</th><th class="text-end">Last used</th></tr></thead>
+            <tbody>
+                {% for r in data.rows %}
+                <tr>
+                    <td><span class="badge-status">{{ r.category }}</span></td>
+                    <td class="part-num">{{ r.item_code or '—' }}</td>
+                    <td><a href="/transaction?category=stores&amp;item_id={{ r['item_id'] }}" title="Record another transaction"><strong>{{ r.name }}</strong></a></td>
+                    <td class="text-end">{{ r.txn_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ r.total_qty }} {{ r.unit or '' }}</td>
+                    <td class="text-muted" style="font-size:0.78rem;">{{ r.last_used[:16] if r.last_used else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:24px;">
+            <p class="text-muted">No stores usage recorded in this period.
+                Usage comes from <a href="/transaction?category=stores">Record Transaction</a> entries.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

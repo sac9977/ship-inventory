@@ -1534,6 +1534,58 @@ def reports_print():
                            month=report_params.get('month'))
 
 
+# ── Stores Consumption Report ──
+
+@app.route('/reports/consumption')
+@login_required
+def reports_consumption():
+    """Stores consumption screen report: usage per item + per-category totals."""
+    now = datetime.now()
+    year = request.args.get('year', str(now.year))
+    month = request.args.get('month', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    params = {}
+    if date_from or date_to:
+        params['date_from'] = date_from or None
+        params['date_to'] = date_to or None
+    elif year:
+        params['year'] = int(year)
+        if month:
+            params['month'] = int(month)
+
+    data = db.get_stores_consumption(**params)
+    return render_template('report_consumption.html', data=data,
+                           year=year, month=month,
+                           date_from=date_from, date_to=date_to, now=now)
+
+
+@app.route('/reports/consumption/print')
+@login_required
+def reports_consumption_print():
+    """Print view for the stores consumption report."""
+    now = datetime.now()
+    year = request.args.get('year', str(now.year))
+    month = request.args.get('month', '')
+    date_from = request.args.get('date_from', '')
+    date_to = request.args.get('date_to', '')
+
+    params = {}
+    if date_from or date_to:
+        params['date_from'] = date_from or None
+        params['date_to'] = date_to or None
+    elif year:
+        params['year'] = int(year)
+        if month:
+            params['month'] = int(month)
+
+    data = db.get_stores_consumption(**params)
+    return render_template('report_consumption_print.html', data=data,
+                           year=year, month=month,
+                           date_from=date_from, date_to=date_to, now=now)
+
+
 # ── Crew Management ──
 
 @app.route('/crew', methods=['GET', 'POST'])

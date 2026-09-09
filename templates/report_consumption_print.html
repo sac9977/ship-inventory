@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+{% set active_page = 'reports' %}
+
+{% block title %}Stores Consumption — Print{% endblock %}
+
+{% block content %}
+<div class="print-header">
+    <h1 style="margin:0; font-size:1.6rem">⚓ SHIP INVENTORY MANAGEMENT</h1>
+    <p style="margin:8px 0 0; font-size:1rem; text-transform:uppercase; letter-spacing:0.08em">Stores Consumption Report</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Period: {{ data.period_label }}</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Generated: {{ now.strftime('%d %B %Y at %H:%M') }}</p>
+    <p style="margin:4px 0 0; font-size:0.7rem; color:#999">Developed by Chief Engineer Sachin Kadam</p>
+</div>
+
+<div class="flex-between mb-2 no-print">
+    <div>
+        <h2 style="margin:0">Stores Consumption — {{ data.period_label }}</h2>
+        <p class="text-muted" style="margin:4px 0 0">{{ now.strftime('%d %B %Y at %H:%M') }}</p>
+    </div>
+    <div class="btn-group">
+        <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
+        <a href="/reports/consumption?{{ request.query_string.decode() }}" class="btn btn-outline">← Back</a>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-body">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Total quantity used</div>
+                <div class="stat-value">{{ data.grand.get('total_qty', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Usage transactions</div>
+                <div class="stat-value">{{ data.grand.get('txn_count', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Distinct items</div>
+                <div class="stat-value">{{ data.grand.get('item_count', 0) }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-header"><h2>By Category</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Category</th><th class="text-end">Transactions</th><th class="text-end">Items used</th><th class="text-end">Total qty</th></tr></thead>
+            <tbody>
+                {% for c in data.categories %}
+                <tr>
+                    <td>{{ c.category }}</td>
+                    <td class="text-end">{{ c.txn_count }}</td>
+                    <td class="text-end">{{ c.item_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ c.total_qty }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-center text-muted">No usage in this period.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2>Item Detail ({{ data.rows | length }})</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Category</th><th>Code</th><th>Item</th><th class="text-end">Times</th><th class="text-end">Total qty</th><th class="text-end">Last used</th></tr></thead>
+            <tbody>
+                {% for r in data.rows %}
+                <tr>
+                    <td>{{ r.category }}</td>
+                    <td class="part-num">{{ r.item_code or '—' }}</td>
+                    <td>{{ r.name }}</td>
+                    <td class="text-end">{{ r.txn_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ r.total_qty }} {{ r.unit or '' }}</td>
+                    <td class="text-end" style="font-size:0.75rem;">{{ r.last_used[:10] if r.last_used else '—' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">No usage in this period.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
