@@ -83,6 +83,8 @@ assert 'NOTACODE' in body and 'unreadable' in body
 print('2. unmatched + unreadable rows listed')
 
 # 3. confirm: apply all
+max_audit_before = con.execute(
+    "SELECT COALESCE(MAX(id), 0) AS m FROM stock_corrections").fetchone()['m']
 payload = [{**r, 'selected': True} for r in rows_json]
 r = client.post('/import-count-sheet-confirm',
                 data={'rows_json': json.dumps(payload)}, follow_redirects=True)
@@ -100,8 +102,8 @@ print('3. apply OK: quantities set exactly')
 # 4. audit rows written as stock-take (4 changes, no-change excluded)
 n_audits = con.execute(
     f"SELECT COUNT(*) c FROM stock_corrections "
-    f"WHERE item_id IN ({','.join('?' * 5)}) AND reason LIKE 'stock take%'",
-    ids).fetchone()['c']
+    f"WHERE item_id IN ({','.join('?' * 5)}) AND reason LIKE 'stock take%' "
+    f"AND id > ?", [*ids, max_audit_before]).fetchone()['c']
 assert n_audits == 4, f'expected 4 audit rows, got {n_audits}'
 print('4. audit rows logged for every applied change')
 

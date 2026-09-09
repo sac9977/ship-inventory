@@ -1088,6 +1088,69 @@ def download_sample_csv(sample_type):
     )
 
 
+# ── Corrections Audit Log ──
+
+@app.route('/corrections')
+@login_required
+def corrections_page():
+    """Audit log of every ROB correction, filterable and paginated."""
+    item = request.args.get('item', '').strip()
+    user = request.args.get('user', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+    try:
+        page = max(1, int(request.args.get('page', 1)))
+    except ValueError:
+        page = 1
+    PER_PAGE = 50
+
+    corrections, total = db.get_stock_corrections(
+        item=item, corrected_by=user, date_from=date_from, date_to=date_to,
+        page=page, per_page=PER_PAGE)
+    total_pages = max(1, (total + PER_PAGE - 1) // PER_PAGE)
+    users = db.get_correction_users()
+
+    delta_total = sum(c['new_quantity'] - c['old_quantity'] for c in corrections)
+    return render_template('corrections.html', corrections=corrections,
+                           users=users, total=total, page=page,
+                           total_pages=total_pages, per_page=PER_PAGE,
+                           f_item=item, f_user=user,
+                           f_from=date_from, f_to=date_to,
+                           page_delta=delta_total)
+
+
+@app.route('/corrections/export')
+@login_required
+def corrections_export():
+    """CSV export of the filtered correction log (no pagination)."""
+    import csv, io
+    from flask import Response
+
+    item = request.args.get('item', '').strip()
+    user = request.args.get('user', '').strip()
+    date_from = request.args.get('date_from', '').strip()
+    date_to = request.args.get('date_to', '').strip()
+
+    rows, _total = db.get_stock_corrections(
+        item=item, corrected_by=user, date_from=date_from, date_to=date_to,
+        page=1, per_page=1000000)  # generous cap; export is login-only
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['timestamp', 'item_code', 'item_name', 'category',
+                     'old_rob', 'new_rob', 'delta', 'reason', 'corrected_by'])
+    for r in rows:
+        writer.writerow([r['created_at'], r['item_code'], r['item_name'],
+                         r['category'], r['old_quantity'], r['new_quantity'],
+                         r['new_quantity'] - r['old_quantity'], r['reason'],
+                         r['corrected_by']])
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition':
+                 'attachment; filename=stock_corrections.csv'})
+
+
 # ── Count-Sheet Import (physical stock take) ──
 
 def _canon_impa(code):

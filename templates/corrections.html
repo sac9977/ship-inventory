@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+
+{% block title %}Corrections Log{% endblock %}
+{% block top_bar_title %}🧾 ROB Corrections — Audit Log{% endblock %}
+
+{% block content %}
+<div class="card mb-3">
+    <div class="card-header">
+        <h2>🧾 Stock Corrections ({{ total }})</h2>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="/corrections" class="filter-bar mb-2">
+            <div class="form-row">
+                <div class="form-group">
+                    <input type="text" class="form-control" name="item"
+                           placeholder="Item name or code…" value="{{ f_item }}">
+                </div>
+                <div class="form-group">
+                    <select name="user" class="form-control">
+                        <option value="">All users</option>
+                        {% for u in users %}
+                        <option value="{{ u }}" {% if f_user == u %}selected{% endif %}>{{ u }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <input type="date" class="form-control" name="date_from"
+                           value="{{ f_from }}" title="From date">
+                </div>
+                <div class="form-group">
+                    <input type="date" class="form-control" name="date_to"
+                           value="{{ f_to }}" title="To date">
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-outline">Filter</button>
+                    <a href="/corrections" class="btn btn-outline">Clear</a>
+                </div>
+            </div>
+        </form>
+
+        {% if corrections %}
+        <div style="margin-bottom:8px; font-size:0.8rem;" class="text-muted">
+            Showing {{ corrections | length }} of {{ total }} correction(s)
+            {% if f_item or f_user or f_from or f_to %} (filtered){% endif %}.
+            Net quantity change on this page:
+            <strong style="color:{{ '#27ae60' if page_delta >= 0 else '#e74c3c' }};">
+                {{ '+' ~ page_delta if page_delta > 0 else page_delta }}</strong>
+        </div>
+
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Code</th>
+                    <th>Item</th>
+                    <th>Category</th>
+                    <th class="text-end">Old ROB</th>
+                    <th class="text-end">New ROB</th>
+                    <th class="text-end">Δ</th>
+                    <th>Reason</th>
+                    <th>By</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in corrections %}
+                <tr>
+                    <td class="text-muted" style="font-size:0.78rem; white-space:nowrap;">{{ c.created_at }}</td>
+                    <td class="part-num">{{ c.item_code or '—' }}</td>
+                    <td><strong>{{ c.item_name or '(deleted item #' ~ c.item_id ~ ')' }}</strong></td>
+                    <td><span class="badge-status">{{ c.category or '—' }}</span></td>
+                    <td class="text-end">{{ c.old_quantity }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ c.new_quantity }}</td>
+                    <td class="text-end" style="font-weight:700; color:{{ '#27ae60' if c.new_quantity > c.old_quantity else ('#e74c3c' if c.new_quantity < c.old_quantity else 'inherit') }};">
+                        {{ '+' ~ (c.new_quantity - c.old_quantity) if c.new_quantity > c.old_quantity else (c.new_quantity - c.old_quantity) }}</td>
+                    <td style="font-size:0.78rem;" class="text-muted">{{ c.reason or '—' }}</td>
+                    <td>{{ c.corrected_by or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if total_pages > 1 %}
+        <div class="flex-between mt-2" style="gap:8px;">
+            <span class="text-muted">Page {{ page }} of {{ total_pages }}</span>
+            <div class="btn-group">
+                {% set qs = '&item=' ~ (f_item | urlencode) ~ '&user=' ~ (f_user | urlencode) ~ '&date_from=' ~ (f_from | urlencode) ~ '&date_to=' ~ (f_to | urlencode) %}
+                {% if page > 1 %}
+                <a href="/corrections?page={{ page - 1 }}{{ qs }}" class="btn btn-sm btn-outline">&larr; Prev</a>
+                {% endif %}
+                {% if page < total_pages %}
+                <a href="/corrections?page={{ page + 1 }}{{ qs }}" class="btn btn-sm btn-outline">Next &rarr;</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+        {% else %}
+        <div class="empty-state">
+            <p class="text-muted">No corrections logged{% if f_item or f_user or f_from or f_to %} for these filters{% endif %}.
+                Corrections appear here when ROB is fixed inline on the Stores list,
+                the dashboard low-ROB panel, or a count sheet is applied.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if corrections %}
+<form method="GET" action="/corrections/export" id="exportForm" style="margin:0;">
+    <input type="hidden" name="item" value="{{ f_item }}">
+    <input type="hidden" name="user" value="{{ f_user }}">
+    <input type="hidden" name="date_from" value="{{ f_from }}">
+    <input type="hidden" name="date_to" value="{{ f_to }}">
+    <button type="submit" class="btn btn-outline">⬇️ Export current view (CSV)</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -614,6 +614,48 @@ def apply_stock_take(updates, corrected_by=''):
     return changed
 
 
+def get_stock_corrections(item='', corrected_by='', date_from='', date_to='',
+                          page=1, per_page=50):
+    """Filtered page of stock-correction audit rows joined with item info.
+    Empty filters are ignored."""
+    with db_connection() as conn:
+        where, params = ["1=1"], []
+        if item:
+            like = f"%{item}%"
+            where.append("(s.name LIKE ? OR s.item_code LIKE ?)")
+            params += [like, like]
+        if corrected_by:
+            where.append("sc.corrected_by = ?")
+            params.append(corrected_by)
+        if date_from:
+            where.append("sc.created_at >= ?")
+            params.append(f"{date_from} 00:00:00")
+        if date_to:
+            where.append("sc.created_at <= ?")
+            params.append(f"{date_to} 23:59:59")
+        clause = " AND ".join(where)
+        base = ("FROM stock_corrections sc "
+                "LEFT JOIN stores s ON s.id = sc.item_id "
+                f"WHERE {clause}")
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c {base}", params).fetchone()['c']
+        offset = (page - 1) * per_page
+        rows = conn.execute(
+            f"SELECT sc.*, s.name AS item_name, s.item_code, s.category, s.unit "
+            f"{base} ORDER BY sc.created_at DESC, sc.id DESC LIMIT ? OFFSET ?",
+            params + [per_page, offset]).fetchall()
+        return [dict(r) for r in rows], total
+
+
+def get_correction_users():
+    """Distinct usernames that have logged corrections (for filter dropdown)."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT corrected_by FROM stock_corrections "
+            "WHERE corrected_by != '' ORDER BY corrected_by").fetchall()
+        return [r['corrected_by'] for r in rows]
+
+
 def adjust_store_quantity(item_id, new_quantity, reason='', corrected_by=''):
     """Set a store item's ROB to an exact value and log the correction.
     Returns (ok, old_quantity or error-message)."""
