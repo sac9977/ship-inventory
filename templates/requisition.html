@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% set active_page = 'stores' %}
+
+{% block title %}Requisition List{% endblock %}
+{% block top_bar_title %}🧾 Requisition — Low ROB Items{% endblock %}
+
+{% block content %}
+<!-- Print header (visible only on paper) -->
+<div class="print-header">
+    <h1 style="margin:0; font-size:1.6rem">⚓ SHIP INVENTORY MANAGEMENT</h1>
+    <p style="margin:8px 0 0; font-size:1rem; text-transform:uppercase; letter-spacing:0.08em">Stores Requisition</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Low ROB items{% if current_category %} — {{ current_category }}{% endif %}{% if search %} — matching “{{ search }}”{% endif %}</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Generated: {{ now.strftime('%d %B %Y') }} · {{ filtered_total }} item(s){% if truncated %} (first {{ limit }} shown){% endif %}</p>
+    <p style="margin:4px 0 0; font-size:0.7rem; color:#999">Suggested qty = min stock − ROB. Fill Order Qty and obtain approval.</p>
+</div>
+
+<!-- Screen chrome (hidden in print) -->
+<div class="no-print">
+    <div class="card mb-2">
+        <div class="card-header flex-between">
+            <h2>🧾 Requisition — {{ filtered_total }} low item(s)</h2>
+            <div class="btn-group">
+                <button onclick="window.print()" class="btn btn-primary" {% if not filtered_total %}disabled{% endif %}>🖨️ Print</button>
+                <a href="/" class="btn btn-outline">← Dashboard</a>
+            </div>
+        </div>
+        <div class="card-body">
+            <form method="GET" action="/requisition" class="filter-bar mb-2">
+                <div class="form-row">
+                    <div class="form-group">
+                        <select name="category" class="form-control">
+                            <option value="">All categories</option>
+                            {% for c in categories %}
+                            <option value="{{ c }}" {% if current_category == c %}selected{% endif %}>{{ c }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <input type="text" class="form-control" name="search" placeholder="Code or name…"
+                               value="{{ search }}">
+                    </div>
+                    <div class="form-group">
+                        <button type="submit" class="btn btn-outline">Apply</button>
+                        <a href="/requisition" class="btn btn-outline">Reset</a>
+                    </div>
+                </div>
+            </form>
+            <p class="text-muted" style="font-size:0.8rem; margin:0;">
+                {{ total_low }} item(s) are at/below minimum stock.
+                {% if truncated %}Showing the worst {{ limit }} — narrow by category or search, or
+                <a href="/requisition?{% if current_category %}category={{ current_category | urlencode }}&amp;{% endif %}{% if search %}search={{ search | urlencode }}&amp;{% endif %}limit=99999">include all</a>.{% endif %}
+            </p>
+        </div>
+    </div>
+</div>
+
+{% if filtered_total %}
+<div class="card">
+    <div class="card-body">
+        {% for category, items in grouped %}
+        <div class="requisition-group">
+            <h3 class="requisition-cat">{{ category }}
+                <span class="text-muted" style="font-size:0.8rem; font-weight:400;">({{ items | length }} item{{ 's' if items | length != 1 }})</span>
+            </h3>
+            <table class="table requisition-table">
+                <thead>
+                    <tr>
+                        <th style="width:34px;">#</th>
+                        <th>Code</th>
+                        <th>Item</th>
+                        <th style="width:52px;">Unit</th>
+                        <th class="text-end" style="width:56px;">ROB</th>
+                        <th class="text-end" style="width:56px;">Min</th>
+                        <th class="text-end" style="width:70px;">Suggested</th>
+                        <th class="order-blank" style="width:90px;">Order Qty</th>
+                        <th class="order-blank">Remarks</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for i in items %}
+                    <tr>
+                        <td class="text-muted">{{ loop.index }}</td>
+                        <td class="part-num">{{ i.item_code or '—' }}</td>
+                        <td><strong>{{ i.name }}</strong></td>
+                        <td>{{ i.unit or 'pcs' }}</td>
+                        <td class="text-end" style="color:#e74c3c; font-weight:700;">{{ i.quantity }}</td>
+                        <td class="text-end">{{ i.min_stock }}</td>
+                        <td class="text-end">{{ i.min_stock - i.quantity }}</td>
+                        <td class="order-blank"></td>
+                        <td class="order-blank"></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endfor %}
+
+        <div class="requisition-sign">
+            <div>
+                <div class="sign-line"></div>
+                <div class="text-muted" style="font-size:0.78rem;">Requested by (rank &amp; name)</div>
+            </div>
+            <div>
+                <div class="sign-line"></div>
+                <div class="text-muted" style="font-size:0.78rem;">Approved by (Chief Engineer)</div>
+            </div>
+            <div>
+                <div class="sign-line"></div>
+                <div class="text-muted" style="font-size:0.78rem;">Date</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="no-print card">
+    <div class="card-body">
+        <div class="empty-state">
+            <p class="text-muted">Nothing to requisition — no item matches these filters
+                ({{ total_low }} low item(s) overall).</p>
+            <a href="/requisition" class="btn btn-outline">Show all categories</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

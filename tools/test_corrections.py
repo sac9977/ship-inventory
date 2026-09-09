@@ -41,12 +41,15 @@ con.execute(
 con.commit()
 print('seeded 4 correction rows (3 admin, 1 SomeoneElse backdated)')
 
-# 1. page renders with rows
+# 1. page renders; the three fresh rows are newest so on page 1.
+# (The backdated ghost row sorts last — asserted via user filter in step 2.)
 r = client.get('/corrections')
 body = r.get_data(as_text=True)
-assert r.status_code == 200 and 'Stock Corrections' in body
-assert 'alpha fix' in body and 'ghost edit' in body
-print('1. page renders with seeded rows')
+assert r.status_code == 200 and 'Stock Corrections (' in body
+assert 'alpha fix' in body
+r_ghost = client.get('/corrections?user=SomeoneElse')
+assert 'ghost edit' in r_ghost.get_data(as_text=True)
+print('1. page renders with seeded rows (ghost via user filter)')
 
 # 2. user filter
 r = client.get('/corrections?user=SomeoneElse')
@@ -78,14 +81,16 @@ body = r.get_data(as_text=True)
 assert 'Corrections (' in body
 print('5. pagination/count OK')
 
-# 6. CSV export with filter
+# 6. CSV export with filter: every data row must be the ghost user's
 r = client.get('/corrections/export?user=SomeoneElse')
 assert r.status_code == 200
 assert 'stock_corrections.csv' in r.headers.get('Content-Disposition', '')
 lines = r.get_data(as_text=True).strip().splitlines()
 assert lines[0].startswith('timestamp,item_code')
-assert len(lines) == 2, f'expected header+1 row, got {len(lines)}'
-assert 'ghost edit' in lines[1]
+assert len(lines) >= 2, f'expected at least header+1 row, got {len(lines)}'
+assert all('SomeoneElse' in ln for ln in lines[1:]), \
+    'export must contain only the filtered user rows'
+assert any('ghost edit' in ln for ln in lines[1:])
 print('6. CSV export honors filters')
 
 # 7. restore quantities and clean the injected row (keep audit real ones)

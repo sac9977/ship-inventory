@@ -45,7 +45,10 @@
 <div class="card" style="border-left: 4px solid #e74c3c; margin-bottom: 24px;" data-rob-autorefresh>
     <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
         <h2>⚠️ Low ROB — worst {{ stats.low_stores_list | length }} of {{ stats.low_stores }} low store items</h2>
-        <a href="/stores?low=1" class="btn btn-sm btn-outline">View all</a>
+        <div class="btn-group">
+            <a href="/requisition" class="btn btn-sm btn-outline">🧾 Requisition</a>
+            <a href="/stores?low=1" class="btn btn-sm btn-outline">View all</a>
+        </div>
     </div>
     <div class="card-body" style="padding:0;">
         <div class="table-container">

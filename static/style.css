@@ -605,9 +605,40 @@ select.form-control {
         border-bottom: 2px solid #000;
         margin-bottom: 16px;
     }
+
+    /* Requisition sheets: repeat headers per group, keep rows intact */
+    .requisition-group { page-break-inside: avoid; }
+    .requisition-table th { background: #f0f0f0 !important; color: #000 !important; }
+    .requisition-table td, .requisition-table th { border: 1px solid #999 !important; }
+    .order-blank { min-width: 80px; }
+    .requisition-sign { page-break-inside: avoid; }
 }
 
 .print-header { display: none; }
+
+/* ── Requisition (printable order sheet) ── */
+.requisition-cat {
+    margin: 18px 0 6px;
+    font-size: 1rem;
+    font-weight: 700;
+    border-bottom: 2px solid var(--text-primary, #222);
+    padding-bottom: 4px;
+}
+
+.requisition-table td { vertical-align: middle; }
+
+.requisition-sign {
+    display: flex;
+    gap: 48px;
+    margin-top: 36px;
+    flex-wrap: wrap;
+}
+
+.sign-line {
+    width: 190px;
+    height: 44px;
+    border-bottom: 1px solid var(--text-primary, #222);
+}
 
 /* ── Responsive (mobile) ── */
 @media (max-width: 768px) {

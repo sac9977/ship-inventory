@@ -24,13 +24,16 @@ rows = con.execute(
     "SELECT id, item_code, quantity FROM stores ORDER BY id LIMIT 5").fetchall()
 ids = [r['id'] for r in rows]
 codes = [r['item_code'] for r in rows]
-cur_qty = [r['quantity'] for r in rows]
+orig_qty = [r['quantity'] for r in rows]
 
-# Fixture: give item 3 a healthy book stock so a small delta stays under the
-# 10% flag threshold (delta 5 on 100 = 5% -> not flagged).
-con.execute("UPDATE stores SET quantity = 100 WHERE id = ?", (ids[2],))
+# Fixture: pin known quantities so flag math is deterministic across runs.
+# item0: qty 5 (delta +1 = 20% -> flagged); item1: qty 5 (3x -> flagged);
+# item2: qty 100 (delta +5 = 5% -> NOT flagged); item3: exact-match row;
+# item4: qty 0 (dotted variant +2).
+for iid, q in [(ids[0], 5), (ids[1], 5), (ids[2], 100), (ids[4], 0)]:
+    con.execute("UPDATE stores SET quantity = ? WHERE id = ?", (q, iid))
 con.commit()
-cur_qty[2] = 100
+cur_qty = [5, 5, 100, orig_qty[3], 0]
 
 # Count sheet:
 #  row0: +1 on book qty 5  -> 20% off  -> FLAGGED
@@ -126,5 +129,9 @@ assert b'impa_code,counted_qty,remarks' in \
 assert 'Import Count Sheet' in client.get('/').get_data(as_text=True)
 print('6. upload page, sample CSV, sidebar link OK')
 
+# restore original quantities
+for iid, q in zip(ids, orig_qty):
+    con.execute("UPDATE stores SET quantity = ? WHERE id = ?", (q, iid))
+con.commit()
 con.close()
 print('\nALL TESTS PASSED')

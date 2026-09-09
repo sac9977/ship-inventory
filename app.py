@@ -1088,6 +1088,47 @@ def download_sample_csv(sample_type):
     )
 
 
+# ── Requisition (printable low-ROB order sheet) ──
+
+@app.route('/requisition')
+@login_required
+def requisition():
+    """Printable requisition of low-ROB items grouped by category, with blank
+    order-quantity and remarks columns for handwriting."""
+    category = request.args.get('category', '').strip()
+    search = request.args.get('search', '').strip()
+    try:
+        limit = int(request.args.get('limit', 500))
+    except ValueError:
+        limit = 500
+
+    items = db.get_low_stock_stores()  # worst-first
+    total_low = len(items)
+    if category:
+        items = [i for i in items if i['category'] == category]
+    if search:
+        s = search.lower()
+        items = [i for i in items
+                 if s in (i['name'] or '').lower()
+                 or s in (i['item_code'] or '').lower()]
+    filtered_total = len(items)
+    truncated = 0 < limit < filtered_total
+    if truncated:
+        items = items[:limit]
+
+    groups = {}
+    for i in items:
+        groups.setdefault(i['category'], []).append(i)
+    grouped = sorted(groups.items(), key=lambda kv: kv[0])
+
+    return render_template('requisition.html', grouped=grouped,
+                           total_low=total_low, filtered_total=filtered_total,
+                           truncated=truncated, limit=limit,
+                           current_category=category, search=search,
+                           categories=db.get_store_categories(),
+                           now=datetime.now())
+
+
 # ── Corrections Audit Log ──
 
 @app.route('/corrections')
