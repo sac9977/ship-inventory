@@ -78,8 +78,8 @@
 </div>
 {% endif %}
 
-<!-- Two-column grid -->
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+<!-- Three-column grid: transactions / stores consumption / monthly usage -->
+<div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 24px;">
     <!-- Left: Recent Transactions -->
     <div class="card">
         <div class="card-header">Recent Transactions</div>
@@ -113,7 +113,20 @@
         </div>
     </div>
 
-    <!-- Right: Monthly Usage Chart -->
+    <!-- Middle: Stores Consumption (usage only) -->
+    <div class="card">
+        <div class="card-header">Stores Consumption - {{ stats.current_year }}</div>
+        <div class="card-body">
+            <div class="chart-container">
+                <canvas id="storesConsumptionChart"></canvas>
+            </div>
+            <div style="text-align:center; margin-top:8px;">
+                <a href="/reports/consumption" class="text-muted" style="font-size:0.78rem;">Full consumption report →</a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Right: Monthly Usage Chart (all categories) -->
     <div class="card">
         <div class="card-header">Monthly Usage - {{ stats.current_year }}</div>
         <div class="card-body">
@@ -173,6 +186,38 @@
                         stepSize: 1
                     }
                 }
+            }
+        }
+    });
+
+    // Stores-only consumption chart (usage transactions, red bars)
+    const storesData = {{ stats.stores_monthly_usage | tojson }};
+    const storesByMonth = {};
+    storesData.forEach(d => { storesByMonth[parseInt(d.month, 10)] = d.usage; });
+    const storesUsage = labels.map((_, i) => storesByMonth[i + 1] || 0);
+
+    const sctx = document.getElementById('storesConsumptionChart').getContext('2d');
+    new Chart(sctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'Stores used',
+                    data: storesUsage,
+                    backgroundColor: 'rgba(249, 115, 22, 0.7)',
+                    borderColor: 'rgba(249, 115, 22, 1)',
+                    borderWidth: 1,
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { position: 'top' } },
+            scales: {
+                y: { beginAtZero: true, ticks: { stepSize: 1 } }
             }
         }
     });

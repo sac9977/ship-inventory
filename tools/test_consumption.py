@@ -121,6 +121,19 @@ print(f'8. CSV export OK ({len(lines) - 1} data rows, filters honored)')
 assert '/reports/consumption/export' in scr
 print('9. export button present')
 
+# 10. dashboard stores-consumption chart fed by the same usage data
+import re as _re
+import html as _html
+home = _html.unescape(client.get('/').get_data(as_text=True))
+assert 'storesConsumptionChart' in home, 'stores chart canvas missing'
+m2 = _re.search(r'const storesData = (\[.*?\]);', home, _re.S)
+assert m2, 'stores chart dataset missing'
+chart_rows = json.loads(m2.group(1))
+total_in_chart = sum(int(d['usage']) for d in chart_rows)
+assert total_in_chart >= 12, f'chart under-reports usage: {total_in_chart}'
+assert '/reports/consumption' in home, 'link to full report missing'
+print(f'10. dashboard chart OK ({total_in_chart} units of usage embedded)')
+
 # restore quantities (usage/receipt txns stay — they are real history)
 for i in items:
     client.post(f'/stores/adjust/{i["id"]}',

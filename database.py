@@ -1210,6 +1210,17 @@ def get_dashboard_stats():
             (str(now.year),)
         ).fetchall()
 
+        # Stores-only monthly consumption (for the dashboard chart)
+        stores_monthly = conn.execute(
+            "SELECT strftime('%m', created_at) as month, "
+            "SUM(quantity) as usage, COUNT(*) as txn_count "
+            "FROM transactions WHERE item_category = 'stores' "
+            "AND transaction_type = 'usage' "
+            "AND strftime('%Y', created_at) = ? "
+            "GROUP BY month ORDER BY month",
+            (str(now.year),)
+        ).fetchall()
+
         low_list = conn.execute(
             "SELECT id, item_code, name, category, quantity, min_stock, unit "
             "FROM stores WHERE quantity <= min_stock AND min_stock > 0 "
@@ -1230,6 +1241,7 @@ def get_dashboard_stats():
             'low_stores_list': [dict(r) for r in low_list],
             'recent_transactions': [dict(r) for r in recent],
             'monthly_usage': [dict(r) for r in monthly_usage],
+            'stores_monthly_usage': [dict(r) for r in stores_monthly],
             'current_year': now.year,
         }
 
