@@ -612,6 +612,10 @@ select.form-control {
     .requisition-table td, .requisition-table th { border: 1px solid #999 !important; }
     .order-blank { min-width: 80px; }
     .requisition-sign { page-break-inside: avoid; }
+
+    /* Close-out checklist: C/E tick boxes and row borders for handwriting */
+    .review-box { min-width: 46px; border: 1px solid #999 !important; }
+    .card { page-break-inside: auto; }
 }
 
 .print-header { display: none; }
@@ -658,6 +662,8 @@ select.form-control {
 }
 
 /* ── Requisition (printable order sheet) ── */
+.review-box { }
+
 .requisition-cat {
     margin: 18px 0 6px;
     font-size: 1rem;

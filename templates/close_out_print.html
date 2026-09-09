@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+{% set active_page = 'reports' %}
+
+{% block title %}Monthly Close-Out — Print{% endblock %}
+
+{% block content %}
+<div class="print-header">
+    <h1 style="margin:0; font-size:1.6rem">⚓ SHIP INVENTORY MANAGEMENT</h1>
+    <p style="margin:8px 0 0; font-size:1rem; text-transform:uppercase; letter-spacing:0.08em">Monthly Close-Out Checklist</p>
+    <p style="margin:4px 0 0; font-size:0.9rem;">{{ month_name }} {{ data.year }} ({{ data.date_from }} — {{ data.date_to }})</p>
+    <p style="margin:4px 0 0; font-size:0.7rem; color:#999">Developed by Chief Engineer Sachin Kadam</p>
+    <p style="margin:4px 0 0; font-size:0.8rem; color:#666">Printed: {{ now.strftime('%d %B %Y at %H:%M') }}</p>
+</div>
+
+<div class="flex-between mb-2 no-print">
+    <div>
+        <h2 style="margin:0">Monthly Close-Out — {{ month_name }} {{ data.year }}</h2>
+        <p class="text-muted" style="margin:4px 0 0">For C/E review · printed {{ now.strftime('%d %b %Y %H:%M') }}</p>
+    </div>
+    <div class="btn-group">
+        <button onclick="window.print()" class="btn btn-primary">🖨️ Print</button>
+        <a href="/close-out?year={{ data.year }}&month={{ data.month }}" class="btn btn-outline">← Back</a>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-body" style="display:flex; gap:24px; flex-wrap:wrap;">
+        <div><strong>{{ data.consumption.grand.get('total_qty', 0) }}</strong>
+            <span class="text-muted" style="font-size:0.8rem;">units consumed</span></div>
+        <div><strong>{{ data.consumption.grand.get('txn_count', 0) }}</strong>
+            <span class="text-muted" style="font-size:0.8rem;">usage entries</span></div>
+        <div><strong>{{ data.corrections | length }}</strong>
+            <span class="text-muted" style="font-size:0.8rem;">corrections</span></div>
+        <div><strong>{{ data.low_total }}</strong>
+            <span class="text-muted" style="font-size:0.8rem;">items below minimum</span></div>
+    </div>
+</div>
+
+<!-- Section 1 -->
+<div class="card mb-2">
+    <div class="card-header"><h2>☑ 1 · Stores Consumed — {{ data.consumption.rows | length }} item(s)</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Category</th><th>Code</th><th>Item</th><th class="text-end">Times</th><th class="text-end">Qty</th><th class="review-box">C/E ✓</th></tr></thead>
+            <tbody>
+                {% for r in data.consumption.rows %}
+                <tr>
+                    <td>{{ r.category }}</td>
+                    <td class="part-num">{{ r.item_code or '—' }}</td>
+                    <td>{{ r.name }}</td>
+                    <td class="text-end">{{ r.txn_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ r.total_qty }} {{ r.unit or '' }}</td>
+                    <td class="review-box"></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">No usage recorded this month.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Section 2 -->
+<div class="card mb-2">
+    <div class="card-header"><h2>☑ 2 · Corrections Made — {{ data.corrections | length }}</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>When</th><th>Code</th><th>Item</th><th class="text-end">Old → New</th><th>Reason</th><th>By</th><th class="review-box">C/E ✓</th></tr></thead>
+            <tbody>
+                {% for c in data.corrections %}
+                <tr>
+                    <td style="font-size:0.75rem;">{{ c.created_at[:16] }}</td>
+                    <td class="part-num">{{ c.item_code or '—' }}</td>
+                    <td>{{ c.name or '(deleted item)' }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ c.old_quantity }} → {{ c.new_quantity }}</td>
+                    <td style="font-size:0.78rem;">{{ c.reason or '—' }}</td>
+                    <td>{{ c.corrected_by or '—' }}</td>
+                    <td class="review-box"></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center text-muted">No corrections this month.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Section 3 -->
+<div class="card mb-2">
+    <div class="card-header"><h2>☑ 3 · Outstanding Low ROB — {{ data.low_total }} item(s)</h2></div>
+    <div class="card-body" style="padding:0;">
+        <table class="table">
+            <thead><tr><th>Code</th><th>Item</th><th>Category</th><th class="text-end">ROB</th><th class="text-end">Min</th><th class="review-box">Order?</th></tr></thead>
+            <tbody>
+                {% for i in data.low_items[:50] %}
+                <tr>
+                    <td class="part-num">{{ i.item_code }}</td>
+                    <td>{{ i.name }}</td>
+                    <td>{{ i.category }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ i.quantity }}</td>
+                    <td class="text-end">{{ i.min_stock }}</td>
+                    <td class="review-box"></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">Nothing below minimum.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if data.low_total > 50 %}
+        <p style="font-size:0.75rem; color:#666; padding:8px 12px;">
+            ({{ data.low_total - 50 }} more low items not listed — see the full low-ROB list in the system.)
+        </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="requisition-sign" style="margin-top:40px;">
+    <div>
+        <div class="sign-line"></div>
+        <div class="text-muted" style="font-size:0.78rem;">Prepared by</div>
+    </div>
+    <div>
+        <div class="sign-line"></div>
+        <div class="text-muted" style="font-size:0.78rem;">Reviewed &amp; approved — Chief Engineer</div>
+    </div>
+    <div>
+        <div class="sign-line"></div>
+        <div class="text-muted" style="font-size:0.78rem;">Date</div>
+    </div>
+</div>
+{% endblock %}

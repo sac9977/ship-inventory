@@ -1,0 +1,140 @@
+{% extends 'base.html' %}
+{% set active_page = 'reports' %}
+
+{% block title %}Monthly Close-Out{% endblock %}
+{% block top_bar_title %}🗂 Monthly Close-Out — {{ month_name }} {{ data.year }}{% endblock %}
+
+{% block content %}
+<div class="card mb-2">
+    <div class="card-header flex-between">
+        <h2>🗂 Monthly Close-Out — {{ month_name }} {{ data.year }}</h2>
+        <div class="btn-group">
+            <a href="/close-out/print?year={{ data.year }}&month={{ data.month }}"
+               class="btn btn-primary">🖨️ Print for C/E review</a>
+            <a href="/reports" class="btn btn-outline">← Reports</a>
+        </div>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="/close-out" class="filter-bar mb-2">
+            <div class="form-row">
+                <div class="form-group">
+                    <input type="number" class="form-control" name="year" min="2000" max="2100"
+                           value="{{ data.year }}" title="Year">
+                </div>
+                <div class="form-group">
+                    <select name="month" class="form-control">
+                        {% for m in range(1, 13) %}
+                        <option value="{{ m }}" {% if data.month == m %}selected{% endif %}>
+                            {{ ['January','February','March','April','May','June','July','August','September','October','November','December'][m-1] }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-outline">Show</button>
+                </div>
+            </div>
+        </form>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Stores consumed</div>
+                <div class="stat-value">{{ data.consumption.grand.get('total_qty', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Usage transactions</div>
+                <div class="stat-value">{{ data.consumption.grand.get('txn_count', 0) }}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Corrections logged</div>
+                <div class="stat-value">{{ data.corrections | length }}</div>
+            </div>
+            <div class="stat-card" {% if data.low_total %}style="border-left-color:#e74c3c;"{% endif %}>
+                <div class="stat-label">Outstanding low ROB</div>
+                <div class="stat-value" {% if data.low_total %}style="color:#e74c3c;"{% endif %}>{{ data.low_total }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Section 1: Consumption -->
+<div class="card mb-2">
+    <div class="card-header"><h2>1 · Stores Consumed ({{ data.consumption.rows | length }} items, {{ data.consumption.grand.get('total_qty', 0) }} total)</h2></div>
+    <div class="card-body" style="padding:0;">
+        {% if data.consumption.rows %}
+        <table class="table">
+            <thead><tr><th>Category</th><th>Code</th><th>Item</th><th class="text-end">Times</th><th class="text-end">Qty used</th></tr></thead>
+            <tbody>
+                {% for r in data.consumption.rows %}
+                <tr>
+                    <td>{{ r.category }}</td>
+                    <td class="part-num">{{ r.item_code or '—' }}</td>
+                    <td>{{ r.name }}</td>
+                    <td class="text-end">{{ r.txn_count }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ r.total_qty }} {{ r.unit or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:18px;"><p class="text-muted">No usage recorded this month.</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Section 2: Corrections -->
+<div class="card mb-2">
+    <div class="card-header"><h2>2 · Corrections Made ({{ data.corrections | length }})</h2></div>
+    <div class="card-body" style="padding:0;">
+        {% if data.corrections %}
+        <table class="table">
+            <thead><tr><th>When</th><th>Code</th><th>Item</th><th class="text-end">Old</th><th class="text-end">New</th><th>Reason</th><th>By</th></tr></thead>
+            <tbody>
+                {% for c in data.corrections %}
+                <tr>
+                    <td class="text-muted" style="font-size:0.75rem; white-space:nowrap;">{{ c.created_at[:16] }}</td>
+                    <td class="part-num">{{ c.item_code or '—' }}</td>
+                    <td>{{ c.name or '(deleted item)' }}</td>
+                    <td class="text-end">{{ c.old_quantity }}</td>
+                    <td class="text-end" style="font-weight:700;">{{ c.new_quantity }}</td>
+                    <td style="font-size:0.78rem;" class="text-muted">{{ c.reason or '—' }}</td>
+                    <td>{{ c.corrected_by or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:18px;"><p class="text-muted">No corrections this month.</p></div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Section 3: Outstanding low ROB -->
+<div class="card mb-2">
+    <div class="card-header"><h2>3 · Outstanding Low ROB ({{ data.low_total }})</h2></div>
+    <div class="card-body">
+        {% if data.low_total %}
+        <p class="text-muted" style="font-size:0.8rem; margin-bottom:8px;">
+            {{ data.low_total }} item(s) remain at/below minimum. Worst {{ [data.low_items | length, 25] | min }} shown
+            {% if data.low_total > 25 %}— <a href="/stores?low=1">view all</a>{% endif %}.
+            A printable order sheet is available at the <a href="/requisition">Requisition</a> page.
+        </p>
+        <table class="table">
+            <thead><tr><th>Code</th><th>Item</th><th>Category</th><th class="text-end">ROB</th><th class="text-end">Min</th></tr></thead>
+            <tbody>
+                {% for i in data.low_items[:25] %}
+                <tr>
+                    <td class="part-num">{{ i.item_code }}</td>
+                    <td><strong>{{ i.name }}</strong></td>
+                    <td>{{ i.category }}</td>
+                    <td class="text-end" style="color:#e74c3c; font-weight:700;">{{ i.quantity }}</td>
+                    <td class="text-end">{{ i.min_stock }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state" style="padding:18px;"><p class="text-muted">Nothing is below minimum — full coverage.</p></div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

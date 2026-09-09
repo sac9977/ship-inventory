@@ -9,6 +9,7 @@ import os
 sys.path = [p for p in sys.path if 'hermes' not in p.lower()]
 
 import json
+import calendar
 import tempfile
 import hashlib
 import secrets
@@ -1532,6 +1533,82 @@ def reports_print():
                            date_from=date_from, date_to=date_to,
                            year=report_params.get('year', now.year),
                            month=report_params.get('month'))
+
+
+# ── Monthly Close-Out (C/E review checklist) ──
+
+def _closeout_data(year, month):
+    """Everything the C/E reviews at month end, scoped to one calendar month."""
+    last_day = calendar.monthrange(year, month)[1]
+    date_from = f'{year}-{month:02d}-01'
+    date_to = f'{year}-{month:02d}-{last_day:02d}'
+    like = f'{year}-{month:02d}%'
+
+    consumption = db.get_stores_consumption(year=year, month=month)
+
+    # Corrections logged this month (any item_category)
+    with db.db_connection() as conn:
+        corr_rows = conn.execute(
+            "SELECT sc.created_at, sc.old_quantity, sc.new_quantity, "
+            "sc.reason, sc.corrected_by, s.item_code, s.name, s.category, s.unit "
+            "FROM stock_corrections sc LEFT JOIN stores s ON s.id = sc.item_id "
+            "WHERE sc.created_at LIKE ? "
+            "ORDER BY sc.created_at DESC", (like,)).fetchall()
+    corrections = [dict(r) for r in corr_rows]
+
+    low = db.get_low_stock_stores()  # worst-first
+
+    return {
+        'year': year, 'month': month, 'date_from': date_from, 'date_to': date_to,
+        'consumption': consumption,
+        'corrections': corrections,
+        'low_items': low,
+        'low_total': len(low),
+    }
+
+
+@app.route('/close-out')
+@login_required
+def close_out():
+    now = datetime.now()
+    try:
+        year = int(request.args.get('year', now.year))
+    except (TypeError, ValueError):
+        year = now.year
+    try:
+        month = int(request.args.get('month', now.month))
+    except (TypeError, ValueError):
+        month = now.month
+    month = min(max(month, 1), 12)
+
+    data = _closeout_data(year, month)
+    months_map = {1: 'January', 2: 'February', 3: 'March', 4: 'April',
+                  5: 'May', 6: 'June', 7: 'July', 8: 'August',
+                  9: 'September', 10: 'October', 11: 'November', 12: 'December'}
+    return render_template('close_out.html', data=data,
+                           month_name=months_map[month], now=now)
+
+
+@app.route('/close-out/print')
+@login_required
+def close_out_print():
+    now = datetime.now()
+    try:
+        year = int(request.args.get('year', now.year))
+    except (TypeError, ValueError):
+        year = now.year
+    try:
+        month = int(request.args.get('month', now.month))
+    except (TypeError, ValueError):
+        month = now.month
+    month = min(max(month, 1), 12)
+
+    data = _closeout_data(year, month)
+    months_map = {1: 'January', 2: 'February', 3: 'March', 4: 'April',
+                  5: 'May', 6: 'June', 7: 'July', 8: 'August',
+                  9: 'September', 10: 'October', 11: 'November', 12: 'December'}
+    return render_template('close_out_print.html', data=data,
+                           month_name=months_map[month], now=now)
 
 
 # ── Stores Consumption Report ──
