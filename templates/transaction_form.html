@@ -6,7 +6,7 @@
     <h2>Record Transaction</h2>
   </div>
   <div class="card-body">
-    <form method="POST" action="/transaction">
+    <form method="POST" action="/transaction" id="txnForm">
       {# Transaction Type #}
       <div class="form-group mb-2">
         <label>Transaction Type</label>
@@ -49,13 +49,28 @@
         </div>
       </div>
 
-      {# Item Select Dropdown #}
-      <div class="form-group">
-        <label for="item_id">Item</label>
-        <select id="item_id" name="item_id" class="form-control" required>
+      {# Item Select Dropdown (non-stores categories; name removed — the
+         hidden carrier below is the sole item_id field so the stores picker
+         and this select can never both submit a value) #}
+      <div class="form-group" id="select-wrap">
+        <label for="item_id_select">Item</label>
+        <select id="item_id_select" class="form-control">
           <option value="">-- Select Item --</option>
         </select>
       </div>
+
+      {# Stores type-ahead picker (searchable; the catalog is 14k+ items) #}
+      <div class="form-group" id="stores-picker" style="display:none; position:relative;">
+        <label for="stores-search">Item — type code or name</label>
+        <input type="text" id="stores-search" class="form-control"
+               autocomplete="off" placeholder="e.g. 33.0140 or life jacket…">
+        <div id="stores-results" class="stores-results"></div>
+        <input type="hidden" name="stores_item_id" id="stores_item_id">
+        <div id="stores-selected" class="text-muted" style="font-size:0.82rem; margin-top:6px;"></div>
+      </div>
+
+      {# One hidden carrier so either picker submits item_id #}
+      <input type="hidden" name="item_id" id="hidden_item_id" value="{{ pre_item or '' }}">
 
       {# Quantity #}
       <div class="form-group">
@@ -106,11 +121,8 @@
       ]{% if not loop.last %},{% endif %}
       {% endfor %}
     },
-    'stores': [
-      {% for st in stores_items %}
-      { id: 'stores:{{ st.id }}', label: '{{ st.item_code | e }} — {{ st.name | e }} (Qty: {{ st.quantity }})' }{% if not loop.last %},{% endif %}
-      {% endfor %}
-    ],
+    'stores': 'SEARCH',  // type-ahead picker, not a dropdown
+
     'oils': [
       {% for oil in oils_items %}
       { id: 'oils:{{ oil.id }}', label: '{{ oil.name | e }} — {{ oil.grade | e }} (Qty: {{ oil.quantity }} {{ oil.unit }})' }{% if not loop.last %},{% endif %}
@@ -130,7 +142,7 @@
 
   function updateItemDropdown() {
     var cat = document.querySelector('input[name="_ic"]:checked');
-    var sel = document.getElementById('item_id');
+    var sel = document.getElementById('item_id_select');
     var catVal = cat ? cat.value : 'spares';
     var items = allItems[catVal] || [];
 
@@ -167,8 +179,17 @@
       });
     }
 
-    // Update hidden field
+    // Update hidden fields
     document.getElementById('hidden_category').value = catVal;
+
+    // Show the right picker + carry any existing selection across switches
+    var isStores = (catVal === 'stores');
+    document.getElementById('stores-picker').style.display = isStores ? '' : 'none';
+    document.getElementById('select-wrap').style.display = isStores ? 'none' : '';
+    var hid = document.getElementById('hidden_item_id');
+    var selVal = isStores ? document.getElementById('stores_item_id').value : sel.value;
+    if (isStores) { sel.value = ''; } else { document.getElementById('stores_item_id').value = ''; }
+    hid.value = selVal ? (isStores ? 'stores:' + selVal : selVal) : '';
   }
 
   function updateType() {
@@ -186,8 +207,89 @@
     radio.addEventListener('change', updateType);
   });
 
+  // ── Stores type-ahead picker ──
+  (function () {
+    var input = document.getElementById('stores-search');
+    var box = document.getElementById('stores-results');
+    var hidStores = document.getElementById('stores_item_id');
+    var hid = document.getElementById('hidden_item_id');
+    var selected = document.getElementById('stores-selected');
+    var timer = null;
+    var lastRows = [];
+
+    function choose(item) {
+      hidStores.value = item.id;
+      hid.value = 'stores:' + item.id;
+      input.value = item.item_code + ' — ' + item.name;
+      box.innerHTML = '';
+      selected.innerHTML = '<strong>' + item.item_code + '</strong> ' + item.name +
+        ' · ' + item.category + ' · current ROB: ' + item.quantity + ' ' + (item.unit || 'pcs');
+    }
+
+    input.addEventListener('input', function () {
+      clearTimeout(timer);
+      var q = input.value.trim();
+      if (q.length < 2) { box.innerHTML = ''; lastRows = []; return; }
+      timer = setTimeout(function () {
+        fetch('/api/stores/lookup?q=' + encodeURIComponent(q))
+          .then(function (r) { return r.json(); })
+          .then(function (rows) {
+            lastRows = rows;
+            box.innerHTML = rows.map(function (it, idx) {
+              return '<a href="#" class="stores-result" data-idx="' + idx + '">' +
+                '<span class="sr-code">' + it.item_code + '</span> ' + it.name +
+                ' <span class="sr-qty">' + it.quantity + ' ' + (it.unit || 'pcs') + ' · ' + it.category + '</span></a>';
+            }).join('') || '<div class="stores-result text-muted">No match</div>';
+          });
+      }, 200);
+    });
+
+    box.addEventListener('click', function (e) {
+      var a = e.target.closest('.stores-result[data-idx]');
+      if (!a) { return; }
+      e.preventDefault();
+      var item = lastRows[parseInt(a.dataset.idx, 10)];
+      if (item) { choose(item); }
+    });
+
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('#stores-picker')) { box.innerHTML = ''; }
+    });
+  })();
+
   // Initialize on load
   updateItemDropdown();
   updateType();
+
+  {% if pre_category == 'stores' and stores_items %}
+  // Deep-link prefill: /transaction?category=stores&item_id=N
+  (function () {
+    var it = {
+      id: {{ stores_items[0].id }},
+      item_code: '{{ (stores_items[0].item_code or '') | e }}',
+      name: '{{ (stores_items[0].name or '') | e }}',
+      category: '{{ (stores_items[0].category or '') | e }}',
+      quantity: {{ stores_items[0].quantity or 0 }},
+      unit: '{{ (stores_items[0].unit or 'pcs') | e }}'
+    };
+    var radio = document.querySelector('input[name="_ic"][value="stores"]');
+    if (radio) { radio.checked = true; }
+    updateItemDropdown();
+    document.getElementById('stores_item_id').value = it.id;
+    document.getElementById('hidden_item_id').value = 'stores:' + it.id;
+    document.getElementById('stores-search').value = it.item_code + ' — ' + it.name;
+    document.getElementById('stores-selected').innerHTML =
+      '<strong>' + it.item_code + '</strong> ' + it.name + ' · ' + it.category +
+      ' · current ROB: ' + it.quantity + ' ' + (it.unit || 'pcs');
+  })();
+  {% endif %}
+
+  // Block submit when no item is chosen
+  document.getElementById('txnForm').addEventListener('submit', function (e) {
+    if (!document.getElementById('hidden_item_id').value) {
+      e.preventDefault();
+      alert('Please select an item first.');
+    }
+  });
 </script>
 {% endblock %}

@@ -709,7 +709,11 @@ def transaction_add():
 
         db.record_transaction(t_type, category, item_id, quantity, crew_name, remarks)
         type_label = 'Received' if t_type == 'receipt' else 'Used'
-        flash(f'{type_label} {quantity} item(s) successfully.', 'success')
+        new_rob = ''
+        if category == 'stores':
+            it = db.get_store_item(item_id)
+            new_rob = f' New ROB: {it["quantity"]} {it["unit"]}.' if it else ''
+        flash(f'{type_label} {quantity} item(s) successfully.{new_rob}', 'success')
         return redirect(url_for('transactions'))
 
     # Pre-populate from query params
@@ -728,8 +732,13 @@ def transaction_add():
             for p in db.get_spare_parts_by_machinery(m['id']):
                 p['machinery_name'] = m['name']
                 spares_items.append(p)
-    if pre_category == 'stores' or not pre_category:
-        stores_items = db.get_all_stores()
+    # Stores picker is a type-ahead search (14k+ items): only fetch the
+    # pre-selected item for deep links; the rest is loaded via /api/stores/lookup.
+    if pre_item and pre_category == 'stores':
+        try:
+            stores_items = [db.get_store_item(int(pre_item))]
+        except (TypeError, ValueError):
+            stores_items = []
     if pre_category == 'oils' or not pre_category:
         oils_items = db.get_all_oils()
     if pre_category == 'chemicals' or not pre_category:
@@ -1584,6 +1593,27 @@ def api_search():
                 })
 
     return jsonify(results)
+
+
+@app.route('/api/stores/lookup')
+@login_required
+def api_stores_lookup():
+    """Lightweight type-ahead for the transaction form's stores picker.
+    Matches code (prefix), then name (substring); caps results at 25."""
+    q = request.args.get('q', '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    limit = 25
+    with db.db_connection() as conn:
+        like = f"%{q}%"
+        rows = conn.execute(
+            "SELECT id, item_code, name, category, quantity, unit "
+            "FROM stores WHERE item_code LIKE ? OR name LIKE ? "
+            "ORDER BY CASE WHEN item_code LIKE ? THEN 0 ELSE 1 END, name "
+            "LIMIT ?",
+            (like, like, f"{q}%", limit)
+        ).fetchall()
+    return jsonify([dict(r) for r in rows])
 
 
 # ── Context Processors ──
