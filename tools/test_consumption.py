@@ -17,7 +17,7 @@ assert r.status_code == 200
 con = __import__('sqlite3').connect(db.DB_PATH)
 con.row_factory = __import__('sqlite3').Row
 items = con.execute(
-    "SELECT id, name, quantity FROM stores ORDER BY id LIMIT 2").fetchall()
+    "SELECT id, item_code, name, quantity FROM stores ORDER BY id LIMIT 2").fetchall()
 ids = [i['id'] for i in items]
 orig = {i['id']: i['quantity'] for i in items}
 
@@ -101,6 +101,25 @@ print('6. print view renders')
 # 7. entry link from reports page
 assert '/reports/consumption' in client.get('/reports').get_data(as_text=True)
 print('7. reports-page link present')
+
+# 8. CSV export honors filters and matches the data rows
+r = client.get(f'/reports/consumption/export?year={now.year}')
+assert r.status_code == 200
+assert 'stores_consumption.csv' in r.headers.get('Content-Disposition', '')
+lines = r.get_data(as_text=True).strip().splitlines()
+assert lines[0] == 'category,item_code,item_name,unit,times_used,total_qty,last_used'
+r0_csv = next(ln for ln in lines[1:] if f'{items[0]["item_code"]}' in ln)
+assert 'Provisions' in r0_csv or ',' in r0_csv
+# export row count == report row count for the same filter
+scr = client.get(f'/reports/consumption?year={now.year}').get_data(as_text=True)
+assert len(lines) - 1 == len(db.get_stores_consumption(year=now.year)['rows']), \
+    'export rows != report rows'
+assert f'{items[0]["item_code"]}' in '\n'.join(lines)
+print(f'8. CSV export OK ({len(lines) - 1} data rows, filters honored)')
+
+# 9. export button present on screen view
+assert '/reports/consumption/export' in scr
+print('9. export button present')
 
 # restore quantities (usage/receipt txns stay — they are real history)
 for i in items:

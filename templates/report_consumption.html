@@ -11,6 +11,8 @@
         <div class="btn-group">
             <a href="/reports/consumption/print?{{ request.query_string.decode() }}"
                class="btn btn-primary">🖨️ Print</a>
+            <a href="/reports/consumption/export?{{ request.query_string.decode() }}"
+               class="btn btn-outline">⬇️ CSV</a>
             <a href="/reports" class="btn btn-outline">← Inventory Report</a>
         </div>
     </div>

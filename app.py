@@ -1536,10 +1536,8 @@ def reports_print():
 
 # ── Stores Consumption Report ──
 
-@app.route('/reports/consumption')
-@login_required
-def reports_consumption():
-    """Stores consumption screen report: usage per item + per-category totals."""
+def _consumption_params():
+    """Shared year/month/date-range parsing for the consumption views."""
     now = datetime.now()
     year = request.args.get('year', str(now.year))
     month = request.args.get('month', '')
@@ -1550,15 +1548,32 @@ def reports_consumption():
     if date_from or date_to:
         params['date_from'] = date_from or None
         params['date_to'] = date_to or None
-    elif year:
-        params['year'] = int(year)
+    else:
+        try:
+            params['year'] = int(year)
+        except (TypeError, ValueError):
+            params['year'] = now.year
         if month:
-            params['month'] = int(month)
+            try:
+                params['month'] = int(month)
+            except (TypeError, ValueError):
+                pass
+    return params
+
+
+@app.route('/reports/consumption')
+@login_required
+def reports_consumption():
+    """Stores consumption screen report: usage per item + per-category totals."""
+    now = datetime.now()
+    params = _consumption_params()
 
     data = db.get_stores_consumption(**params)
     return render_template('report_consumption.html', data=data,
-                           year=year, month=month,
-                           date_from=date_from, date_to=date_to, now=now)
+                           year=request.args.get('year', str(now.year)),
+                           month=request.args.get('month', ''),
+                           date_from=request.args.get('date_from', ''),
+                           date_to=request.args.get('date_to', ''), now=now)
 
 
 @app.route('/reports/consumption/print')
@@ -1566,24 +1581,39 @@ def reports_consumption():
 def reports_consumption_print():
     """Print view for the stores consumption report."""
     now = datetime.now()
-    year = request.args.get('year', str(now.year))
-    month = request.args.get('month', '')
-    date_from = request.args.get('date_from', '')
-    date_to = request.args.get('date_to', '')
-
-    params = {}
-    if date_from or date_to:
-        params['date_from'] = date_from or None
-        params['date_to'] = date_to or None
-    elif year:
-        params['year'] = int(year)
-        if month:
-            params['month'] = int(month)
+    params = _consumption_params()
 
     data = db.get_stores_consumption(**params)
     return render_template('report_consumption_print.html', data=data,
-                           year=year, month=month,
-                           date_from=date_from, date_to=date_to, now=now)
+                           year=request.args.get('year', str(now.year)),
+                           month=request.args.get('month', ''),
+                           date_from=request.args.get('date_from', ''),
+                           date_to=request.args.get('date_to', ''), now=now)
+
+
+@app.route('/reports/consumption/export')
+@login_required
+def reports_consumption_export():
+    """CSV export of the consumption report (honors the same filters)."""
+    import csv, io
+    from flask import Response
+
+    data = db.get_stores_consumption(**_consumption_params())
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['category', 'item_code', 'item_name', 'unit',
+                     'times_used', 'total_qty', 'last_used'])
+    for r in data['rows']:
+        writer.writerow([r['category'], r['item_code'] or '', r['name'],
+                         r['unit'] or 'pcs', r['txn_count'], r['total_qty'],
+                         (r['last_used'] or '')[:19]])
+    output.seek(0)
+    return Response(
+        output.getvalue(),
+        mimetype='text/csv',
+        headers={'Content-Disposition':
+                 'attachment; filename=stores_consumption.csv'})
 
 
 # ── Crew Management ──
