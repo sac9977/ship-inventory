@@ -57,10 +57,10 @@ assert r.status_code == 200
 assert r.content_length == 20228992, f'unexpected video size {r.content_length}'
 print('6. video serves (20.2 MB) OK')
 
-# 7. login page mentions the video credit
+# 7. login page no longer shows the video credit (removed per request)
 r = appmod.app.test_client().get('/login')
-assert 'Saslu' in r.get_data(as_text=True)
-print('7. login page credit OK')
+assert 'Saslu' not in r.get_data(as_text=True), 'credit should be removed'
+print('7. login page credit removed OK')
 
 # 8. unauthenticated pages never render the splash
 c4 = appmod.app.test_client()
