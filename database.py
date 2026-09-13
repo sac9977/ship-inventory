@@ -1222,6 +1222,9 @@ def get_all_crew(include_inactive=False):
 
 
 def create_crew_member(name, rank='', username='', password='', role='user'):
+    """Insert a crew member. Empty username becomes NULL so multiple
+    no-login crew rows can coexist (UNIQUE allows repeating NULLs only)."""
+    username = (username or '').strip() or None
     with db_connection() as conn:
         password_hash = ''
         changed_at = None

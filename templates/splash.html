@@ -1,61 +1,116 @@
-<!-- Splash Screen / Cinematic Layer -->
-<div id="splash-screen">
-    <div class="scroll-container" id="scroll-container">
-        <!-- Scene 1: The Master Video -->
-        <section class="scene">
-            <video class="scene-video" autoplay muted playsinline loop>
-                <source src="/static/assets/video/ship_inventory_splash.mp4" type="video/mp4">
-                Your browser does not support the video tag.
-            </video>
-            <div class="scene-overlay">
-                <h1 id="splash-title">The Navigator's World</h1>
-                <p id="splash-subtitle">Charting the course of your inventory.</p>
-            </div>
-        </section>
+{% if show_splash %}
+<!-- Splash Screen — cinematic intro, once per browser session -->
+<div id="splash-screen" aria-hidden="true">
+    <video id="splash-video" autoplay muted playsinline preload="auto"
+           src="{{ url_for('static', filename='assets/video/ship_inventory_splash.mp4') }}"></video>
+    <div class="splash-overlay">
+        <h1 id="splash-title">The Navigator's World</h1>
+        <p id="splash-subtitle">Charting the course of your inventory.</p>
     </div>
-    
-    <!-- Exit Button (for testing) -->
-    <button onclick="dismissSplash()" class="btn btn-outline-light position-absolute bottom-0 end-0 m-4" style="z-index: 10000;">Skip Intro</button>
+    <button id="splash-skip" type="button" aria-label="Skip intro">Skip intro ✕</button>
 </div>
 
-<main id="app-content" style="display: none; opacity: 0; transition: opacity 0.8s ease-in;">
-    <!-- The real dashboard will load here -->
-    <div class="p-4">
-        <h1 class="fw-bold text-navy">Command Center</h1>
-        <p>Inventory Overview</p>
-    </div>
-</main>
+<style>
+#splash-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity .7s ease-out;
+}
+#splash-screen.splash-closing { opacity: 0; pointer-events: none; }
+#splash-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.splash-overlay {
+    position: absolute;
+    left: 8%;
+    bottom: 12%;
+    color: #fff;
+    text-shadow: 0 2px 12px rgba(0,0,0,.65);
+    pointer-events: none;
+    animation: splashRise 1.4s ease-out both;
+}
+@keyframes splashRise {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.splash-overlay h1 {
+    font-size: clamp(2rem, 5vw, 4rem);
+    font-weight: 800;
+    line-height: 1.1;
+    margin: 0 0 .5rem;
+}
+.splash-overlay p {
+    font-size: clamp(1rem, 2vw, 1.25rem);
+    opacity: .92;
+    margin: 0;
+}
+#splash-skip {
+    position: absolute;
+    right: 20px;
+    bottom: 20px;
+    background: rgba(0,0,0,.45);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,.35);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: .85rem;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    transition: background .2s ease;
+}
+#splash-skip:hover { background: rgba(0,0,0,.7); }
+@media (prefers-reduced-motion: reduce) {
+    #splash-video { display: none; }
+    #splash-screen { background: radial-gradient(ellipse at center, #16324f 0%, #060d16 75%); }
+}
+</style>
 
 <script>
-    const splash = document.getElementById('splash-screen');
-    const content = document.getElementById('app-content');
-    const video = document.querySelector('.scene-video');
+(function () {
+    'use strict';
 
-    function dismissSplash() {
-        splash.style.opacity = '0';
-        splash.style.transition = 'opacity 0.8s ease-out';
-        setTimeout(() => {
-            splash.style.display = 'none';
-            content.style.display = 'block';
-            // Force reflow
-            content.offsetHeight; 
-            content.style.opacity = '1';
-        }, 800);
+    var splash = document.getElementById('splash-screen');
+    var video = document.getElementById('splash-video');
+    var skip = document.getElementById('splash-skip');
+    var dismissed = false;
+
+    function dismiss() {
+        if (dismissed) { return; }
+        dismissed = true;
+        try { sessionStorage.setItem('splash_shown', '1'); } catch (e) { /* private mode */ }
+        splash.classList.add('splash-closing');
+        try { video.pause(); } catch (err) { /* already gone */ }
+        setTimeout(function () { splash.remove(); }, 750);
     }
 
-    // Automatic dismissal after video ends
+    // End of video OR skip button both dismiss; the video does NOT loop,
+    // so the 'ended' event genuinely fires.
     if (video) {
-        video.onended = function() {
-            dismissSplash();
-        };
+        video.addEventListener('ended', dismiss);
+        // If autoplay was blocked the video never plays — dismiss after 3.5s
+        // so the splash can never trap the user on a black screen.
+        setTimeout(function () {
+            if (!dismissed && video.paused && video.currentTime === 0) { dismiss(); }
+        }, 3500);
+    } else {
+        dismiss();
     }
 
-    // Fallback for browsers where autoplay might be blocked
-    window.addEventListener('load', () => {
-        setTimeout(() => {
-            if (splash.style.display !== 'none') {
-                console.log('Video auto-play failed, providing manual skip fallback.');
-            }
-        }, 5000);
-    });
+    if (skip) { skip.addEventListener('click', dismiss); }
+    setTimeout(function () {
+        // Hard cap: even a slow-loading 30s video ends long before this.
+        if (!dismissed) { dismiss(); }
+    }, 32000);
+})();
 </script>
+{% endif %}

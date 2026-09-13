@@ -2101,6 +2101,16 @@ def api_stores_lookup():
 
 @app.context_processor
 def inject_globals():
+    # Cinematic splash: show once per login session on the first page render.
+    show_splash = (
+        'user_id' in session
+        and request.method == 'GET'
+        and not request.path.startswith(('/static/', '/api/'))
+        and not session.get('_splash_done')
+    )
+    if show_splash:
+        # Mark immediately so it never plays twice within this login.
+        session['_splash_done'] = True
     _cfg = _get_config()
     # Derive active_page from request path for sidebar highlighting
     path = request.path.strip('/')
@@ -2146,6 +2156,7 @@ def inject_globals():
         'app_name': 'Ship Inventory',
         'ship_name': _cfg.get('ship_name', ''),
         'active_page': active_page,
+        'show_splash': show_splash,
         'now': datetime.now(),
         'current_user': {
             'id': session.get('user_id'),
