@@ -533,15 +533,36 @@ def bulk_create_spare_parts(machinery_id, parts_list):
             )
 
 
-def search_spare_parts(query):
+def search_spare_parts(query, limit=None):
+    """Relevance search over spare parts, mirroring search_stores_smart:
+    code-looking queries match only the digits of part_number (normalized,
+    ranked exact > prefix > substring); name queries substring-match the
+    description/part number. Rows carry machinery_name."""
+    q = (query or '').strip()
+    if not q:
+        return []
     with db_connection() as conn:
-        rows = conn.execute(
-            "SELECT sp.*, m.name as machinery_name FROM spare_parts sp "
-            "JOIN machinery m ON sp.machinery_id = m.id "
-            "WHERE sp.description LIKE ? OR sp.part_number LIKE ? "
-            "ORDER BY m.name, sp.part_number",
-            (f'%{query}%', f'%{query}%')
-        ).fetchall()
+        join = ("SELECT sp.*, m.name as machinery_name FROM spare_parts sp "
+                "JOIN machinery m ON sp.machinery_id = m.id")
+        if _is_probable_code(q):
+            digits = _digits(q)
+            pn = "REPLACE(REPLACE(REPLACE(sp.part_number, '.', ''), ' ', ''), '-', '')"
+            base = (
+                f"{join} WHERE {pn} LIKE '%{digits}%' "
+                f"ORDER BY CASE "
+                f"WHEN {pn} = '{digits}' THEN 0 "
+                f"WHEN {pn} LIKE '{digits}%' THEN 1 "
+                f"WHEN {pn} LIKE '%{digits}%' THEN 2 "
+                "ELSE 3 END, m.name, sp.part_number"
+            )
+            params = []
+        else:
+            like = f'%{q}%'
+            base = (f"{join} WHERE sp.description LIKE ? OR sp.part_number LIKE ? "
+                    "ORDER BY m.name, sp.part_number")
+            params = [like, like]
+        sql = base + (" LIMIT ?" if limit else "")
+        rows = conn.execute(sql, params + [limit] if limit else params).fetchall()
         return [dict(r) for r in rows]
 
 

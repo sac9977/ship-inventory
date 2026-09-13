@@ -57,12 +57,12 @@
                             {% if u.id == session.get('user_id') %}<span class="text-muted text-small">(you)</span>{% endif %}
                             <br><span class="font-mono text-muted text-small">{{ u.username or 'no login' }}</span>
                         </td>
-                        <td>{% if u.role == 'admin' %}<span class="badge-status" style="background:rgba(94,106,210,0.15);color:#fff">Admin</span>{% else %}<span class="text-muted">User</span>{% endif %}</td>
+                        <td>{% if u.role == 'admin' %}<span class="badge-status" style="background:rgba(94,106,210,0.12);color:var(--brand-accent)">Admin</span>{% else %}<span class="text-muted">User</span>{% endif %}</td>
                         <td>
                             {% if not u.active %}
-                            <span class="badge-status" style="background:rgba(220,53,69,0.15);color:#ff6b7a">Deactivated</span>
+                            <span class="badge-status" style="background:rgba(220,38,38,0.10);color:var(--danger)">Deactivated</span>
                             {% elif u.must_change_password %}
-                            <span class="badge-status" style="background:rgba(255,193,7,0.15);color:#ffc95e">Password change due</span>
+                            <span class="badge-status" style="background:rgba(180,83,9,0.10);color:var(--warning)">Password change due</span>
                             {% else %}
                             <span class="badge-status badge-ok">✓ Active</span>
                             {% endif %}
@@ -162,8 +162,8 @@
 {% block scripts %}
 <style>
 .policy-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; }
-.policy-item { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:14px; text-align:center; }
-.policy-value { font-size:1.4rem; font-weight:700; color:var(--accent, #5e6ad2); }
+.policy-item { background:#fafafa; border:1px solid rgba(0,0,0,0.07); border-radius:12px; padding:14px; text-align:center; }
+.policy-value { font-size:1.4rem; font-weight:700; color:var(--brand-accent, #4f5bd5); }
 .policy-label { font-size:0.8rem; color:var(--text-tertiary, #888); margin-top:4px; }
 .sess-row { display:flex; align-items:center; gap:8px; margin:3px 0; flex-wrap:wrap; }
 </style>

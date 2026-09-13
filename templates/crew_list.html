@@ -73,16 +73,16 @@
                         <td class="font-mono">{{ c.username or '—' }}</td>
                         <td>
                             {% if c.role == 'admin' %}
-                            <span class="badge-status" style="background:rgba(94,106,210,0.15);color:#fff">Admin</span>
+                            <span class="badge-status" style="background:rgba(94,106,210,0.12);color:var(--brand-accent)">Admin</span>
                             {% else %}
-                            <span class="badge-status" style="background:rgba(255,255,255,0.03);color:var(--text-tertiary)">User</span>
+                            <span class="badge-status" style="background:rgba(0,0,0,0.04);color:var(--text-tertiary)">User</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if not c.active %}
-                            <span class="badge-status" style="background:rgba(220,53,69,0.15);color:#ff6b7a">Deactivated</span>
+                            <span class="badge-status" style="background:rgba(220,38,38,0.10);color:var(--danger)">Deactivated</span>
                             {% elif c.has_login and c.must_change_password %}
-                            <span class="badge-status" style="background:rgba(255,193,7,0.15);color:#ffc95e">Password reset pending</span>
+                            <span class="badge-status" style="background:rgba(180,83,9,0.10);color:var(--warning)">Password reset pending</span>
                             {% elif c.has_login %}
                             <span class="badge-status badge-ok">✓ Active</span>
                             {% else %}

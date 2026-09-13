@@ -28,7 +28,7 @@
 
             <div id="itemsList" style="max-height:500px; overflow-y:auto;">
                 {% for item in items %}
-                <div class="import-preview-item" style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid rgba(255,255,255,0.05);">
+                <div class="import-preview-item" style="display:flex; align-items:center; gap:8px; padding:6px 8px; border-bottom:1px solid rgba(0,0,0,0.06);">
                     <input type="checkbox" name="selected_{{ loop.index }}" checked
                            data-index="{{ loop.index0 }}" style="flex-shrink:0;">
                     <span class="font-mono" style="min-width:70px; font-weight:600; color:var(--navy-600);">{{ item.impa_code }}</span>

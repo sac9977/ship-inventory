@@ -2053,7 +2053,7 @@ def api_search():
 
     if len(query) >= 2:
         if category in ('all', 'spares'):
-            for p in db.search_spare_parts(query):
+            for p in db.search_spare_parts(query, limit=25):
                 results.append({
                     'type': 'spare',
                     'id': p['id'],
