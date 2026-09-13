@@ -1,12 +1,259 @@
 """
 Ship Inventory PDF Parser
-Extracts spare parts lists from machinery PDF documents.
-Handles standard fonts via pdfplumber, CID-encoded fonts via PyMuPDF fallback.
-"""
-import re
-import os
-import pdfplumber
+Extracts spare parts lists from machinery PDF documents (e.g. MAN ES "Plate"
+manuals: a drawing number in the page header, a plate title, and a two-column
+"Item no | Designation" table where the item number is the balloon reference
+on the drawing).
 
+Key behaviours:
+- Drawing number capture: a numeric code like 1470-0510-0006 printed in the
+  page header (top) and repeated near the plate footer is recorded per page
+  and stamped onto every part found on that page.
+- Encoded-font recovery: some generator pipelines embed fonts whose glyphs are
+  shifted by -0x1E (e.g. '+VGO' renders as 'Item', '\x13\x16\x19' as '147').
+  Spans from fonts that emit control characters are decoded back to ASCII.
+- Item number splitting: the leftmost small integer on a row becomes the
+  part_number (balloon ref); the remaining text is the description.
+- Plate titles: the large bold line inside the content area names the section
+  ("Crosshead Hydraulic Tools", "Connecting rod", ...) and is carried per part.
+
+Fallback: pdfplumber table/text extraction for conventional PDFs.
+"""
+import os
+import re
+import statistics
+
+
+# ── Encoded-font recovery ────────────────────────────────────────────────────
+
+def _decode_shifted(text):
+    """Undo the generator cmap shift: real char = stored code + 0x1E.
+
+    ' ' is stored as 0x02, digits as 0x12-0x1B, '-' as 0x0F, and letters fill
+    0x23-0x5C. Codes whose sum is not printable ASCII are dropped.
+    """
+    out = []
+    for ch in text:
+        c = ord(ch) + 0x1E
+        if 0x20 <= c <= 0x7E:
+            out.append(chr(c))
+    return ''.join(out)
+
+
+# A drawing/identity number: two to six digit groups joined by - . / or space.
+DRAWING_RE = re.compile(r'^\d{2,6}[.\-/ ]\d{2,6}(?:[.\-/ ]\d{2,6}){0,4}$')
+
+HEADER_TOKEN_RE = re.compile(
+    r'(item\s*no|designation|part\s*no|description|identity\s*no|drawing\s*no)',
+    re.IGNORECASE)
+
+# Row noise (kept from the legacy extractor)
+NOISE_RE = re.compile(
+    r'^(\d{4}[-/.]\d{2}[-/.]\d{2}|'          # dates
+    r'\d{4}[-/.]\d{2}[-/.]\d{2}\s*[-\u2013\u2014]?\s*[a-z]{0,3}$|'  # date + lang footer
+    r'\d[\d\-/.]{6,}|'                        # bare document/part codes
+    r'\d+\s*\(\d+\)|'                         # page refs like "2 (2)"
+    r'[\d\s.\-/]+)$',                         # pure numbers/punctuation
+    re.IGNORECASE)
+
+MIN_BODY_SIZE_RATIO = 1.25   # a title span must be 25% larger than body text
+HEADER_ZONE = 0.10           # top 10% of the page: drawing numbers only
+FOOTER_ZONE = 0.78           # bottom 22%: plate label, dates, page refs
+
+
+def parse_pdf(file_path):
+    """
+    Parse a spare-parts manual PDF into structured data.
+    Returns a dict with 'machinery_name', 'drawing_number', 'plates',
+    'parts' and 'raw_text_preview'.
+    """
+    parts, meta, full_text = _parse_manual(file_path)
+
+    if not parts:
+        parts, full_text = _parse_legacy(file_path)
+
+    machinery_name = (
+        meta.get('machinery_name')
+        or _extract_machinery_name(full_text)
+        or 'UNKNOWN MACHINERY'
+    )
+    parts = _deduplicate(parts)
+
+    return {
+        'machinery_name': machinery_name,
+        'drawing_number': meta.get('drawing_number', ''),
+        'plates': meta.get('plates', []),
+        'parts': parts,
+        'raw_text_preview': (full_text or '')[:3000],
+    }
+
+
+# ── Primary extractor: PyMuPDF spans, position-aware ─────────────────────────
+
+def _page_spans(page):
+    """Collect styled spans from a page (skipping invisible artifacts)."""
+    spans = []
+    for b in page.get_text('dict')['blocks']:
+        for l in b.get('lines', []):
+            for s in l['spans']:
+                t = s.get('text', '')
+                if not t.strip():
+                    continue
+                size = s.get('size', 0) or 0
+                if size < 2:          # invisible watermark / artifact glyphs
+                    continue
+                font = s.get('font', '') or ''
+                spans.append({
+                    'text': t,
+                    'x0': s['bbox'][0], 'y0': s['bbox'][1],
+                    'size': size,
+                    'font': font,
+                    'bold': ('bold' in font.lower() or 'bd' in font.lower()
+                             or 'black' in font.lower()),
+                })
+    return spans
+
+
+def _decode_encoded_fonts(spans):
+    """Decode spans of fonts that emit control characters (shifted cmaps).
+
+    A font is flagged when ANY of its spans contains a control char; all spans
+    of that font are then decoded, including clean-text spans like '5ETGY'
+    ('Screw'). Fonts that never emit control chars are left untouched.
+    """
+    flagged = {s['font'] for s in spans
+               if any(ord(c) < 0x20 for c in s['text'])}
+    for s in spans:
+        if s['font'] in flagged:
+            s['text'] = _decode_shifted(s['text'])
+    return spans
+
+
+def _cluster_lines(spans, y_tol=3.0):
+    """Group spans into visual lines by y position, x-ordered within a line."""
+    lines = []
+    for s in sorted(spans, key=lambda s: (s['y0'], s['x0'])):
+        if lines and abs(s['y0'] - lines[-1]['y0']) <= y_tol:
+            lines[-1]['spans'].append(s)
+        else:
+            lines.append({'y0': s['y0'], 'spans': [s]})
+    for ln in lines:
+        ln['spans'].sort(key=lambda s: s['x0'])
+        ln['text'] = ' '.join(s['text'].strip() for s in ln['spans']).strip()
+    return lines
+
+
+def _parse_manual(file_path):
+    """Unified extractor for manual-style pages (normal or encoded fonts)."""
+    try:
+        import fitz  # PyMuPDF
+    except ImportError:
+        return [], {}, ''
+
+    all_parts = []
+    plates = []
+    drawing_votes = {}
+    full_text = ''
+    title_sizes = []
+
+    doc = fitz.open(file_path)
+    try:
+        for page_no, page in enumerate(doc, start=1):
+            h = page.rect.height or 792
+            spans = _decode_encoded_fonts(_page_spans(page))
+            lines = _cluster_lines(spans)
+            body_size = statistics.median(
+                [s['size'] for s in spans if s['size']] or [8.5])
+
+            page_parts = []
+            page_drawing = ''
+            plate_title = ''
+            last_part = None       # (part_dict, line_index) for continuations
+
+            for idx, ln in enumerate(lines):
+                y = ln['y0']
+                text = ln['text']
+                full_text += text + '\n'
+
+                # Drawing numbers in header or footer zones
+                if y < h * HEADER_ZONE or y > h * FOOTER_ZONE:
+                    if not page_drawing and DRAWING_RE.match(text.strip()):
+                        page_drawing = text.strip()
+                    continue
+
+                # Header rows ("Item no. Designation") and noise
+                if HEADER_TOKEN_RE.search(text) and not re.search(
+                        r'[a-z]{4}\s+[a-z]{4}\s+[a-z]{4}', text):
+                    continue
+                if DRAWING_RE.match(text.strip()):
+                    if not page_drawing:
+                        page_drawing = text.strip()
+                    continue
+
+                # Plate titles: big bold text inside the content area
+                big = [s for s in ln['spans']
+                       if s['size'] > body_size * MIN_BODY_SIZE_RATIO]
+                if big and len(text) > 3:
+                    if not plate_title:
+                        plate_title = text
+                        title_sizes.append(page_no)
+                    continue
+
+                if NOISE_RE.match(text):
+                    continue
+
+                # Data row: leftmost small integer = item no (balloon ref)
+                spans_txt = [s['text'].strip() for s in ln['spans']]
+                item_no = ''
+                if spans_txt and re.match(r'^\d{1,4}[.)]?$', spans_txt[0]):
+                    item_no = spans_txt[0].rstrip('.)')
+                    spans_txt = spans_txt[1:]
+                desc = ' '.join(t for t in spans_txt if t).strip()
+
+                if item_no:
+                    part = {
+                        'part_number': item_no,
+                        'description': desc,
+                        'drawing_number': page_drawing,
+                        'plate_title': plate_title,
+                        'quantity': 0,
+                        'unit': 'pcs',
+                        'min_stock': 0,
+                    }
+                    page_parts.append(part)
+                    last_part = (part, idx)
+                elif desc and len(desc) > 2 and last_part \
+                        and idx - last_part[1] == 1 \
+                        and not NOISE_RE.match(desc):
+                    # Wrapped continuation of the previous designation
+                    prev = last_part[0]['description']
+                    last_part[0]['description'] = (prev + ' ' + desc).strip()
+
+            if plate_title:
+                plates.append({
+                    'page': page_no,
+                    'title': plate_title,
+                    'drawing_number': page_drawing,
+                })
+            if page_drawing:
+                drawing_votes[page_drawing] = drawing_votes.get(page_drawing, 0) + 1
+            for p in page_parts:
+                p['plate_title'] = p['plate_title'] or plate_title
+                p['drawing_number'] = p['drawing_number'] or page_drawing
+            all_parts.extend(page_parts)
+    finally:
+        doc.close()
+
+    meta = {
+        'plates': plates,
+        'drawing_number': (max(drawing_votes, key=drawing_votes.get)
+                           if drawing_votes else ''),
+        'machinery_name': (plates[0]['title'].upper() if plates else ''),
+    }
+    return all_parts, meta, full_text
+
+
+# ── Legacy fallback: pdfplumber tables / text ────────────────────────────────
 
 HEADER_PATTERNS = {
     'part_number': re.compile(
@@ -46,32 +293,13 @@ SKIP_PATTERNS = re.compile(
 )
 
 
-def parse_pdf(file_path):
-    """
-    Parse a spare parts PDF and extract structured data.
-    Returns a dict with 'machinery_name', 'parts' list, and 'raw_text_preview'.
-    """
-    # Try pdfplumber first (works for standard fonts)
-    parts, full_text = _parse_with_pdfplumber(file_path)
+def _parse_legacy(file_path):
+    """Conventional PDFs: pdfplumber tables first, raw text second."""
+    try:
+        import pdfplumber
+    except ImportError:
+        return [], ''
 
-    # Fallback: try PyMuPDF for CID-encoded fonts
-    if not parts:
-        parts, pymupdf_text = _parse_with_pymupdf(file_path)
-        if pymupdf_text:
-            full_text = pymupdf_text
-
-    machinery_name = _extract_machinery_name(full_text) if full_text else 'UNKNOWN MACHINERY'
-    parts = _deduplicate(parts)
-
-    return {
-        'machinery_name': machinery_name,
-        'parts': parts,
-        'raw_text_preview': (full_text or '')[:3000],
-    }
-
-
-def _parse_with_pdfplumber(file_path):
-    """Try parsing with pdfplumber (standard fonts)."""
     full_text = ''
     all_tables = []
     has_cid = False
@@ -80,14 +308,12 @@ def _parse_with_pdfplumber(file_path):
         for page in pdf.pages:
             text = page.extract_text() or ''
             full_text += text + '\n'
-            # Check for CID-encoded text
             if '(cid:' in text:
                 has_cid = True
             tables = _extract_tables(page)
             if tables:
                 all_tables.extend(tables)
 
-    # If CID text detected, skip pdfplumber results (they'll be garbage)
     if has_cid:
         return [], full_text
 
@@ -96,162 +322,6 @@ def _parse_with_pdfplumber(file_path):
         parts = _extract_from_text(full_text)
 
     return parts, full_text
-
-
-def _parse_with_pymupdf(file_path):
-    """Fallback: try PyMuPDF for CID-encoded fonts."""
-    try:
-        import fitz  # PyMuPDF
-    except ImportError:
-        return [], ''
-
-    full_text = ''
-    all_parts = []
-    has_cid = False
-
-    doc = fitz.open(file_path)
-    for page_num, page in enumerate(doc):
-        blocks = page.get_text('dict')['blocks']
-        page_lines = []
-
-        for b in blocks:
-            if 'lines' not in b:
-                continue
-            for line in b['lines']:
-                for span in line['spans']:
-                    t = span['text'].strip()
-                    if not t:
-                        continue
-                    # Check for CID-encoded text (control characters)
-                    has_ctrl = any(ord(c) < 0x20 for c in t)
-                    if has_ctrl:
-                        has_cid = True
-                    page_lines.append(t)
-
-        page_text = '\n'.join(page_lines)
-        full_text += page_text + '\n'
-
-        # Extract parts using CID-aware parser
-        parts = _extract_from_cid_spans(page)
-        all_parts.extend(parts)
-
-    doc.close()
-
-    # Only return CID-decoded parts if we actually found CID text
-    if has_cid:
-        return all_parts, full_text
-    return [], full_text
-
-
-def _extract_from_cid_spans(page):
-    """Extract parts from page spans, handling CID-encoded item numbers."""
-    parts = []
-    blocks = page.get_text('dict')['blocks']
-
-    # Collect all spans with position info
-    spans = []
-    for b in blocks:
-        if 'lines' not in b:
-            continue
-        for line in b['lines']:
-            for span in line['spans']:
-                t = span['text'].strip()
-                if t:
-                    spans.append({
-                        'text': t,
-                        'bbox': span['bbox'],
-                        'font': span['font'],
-                        'has_ctrl': any(ord(c) < 0x20 for c in t),
-                    })
-
-    # Group spans by vertical position (same line)
-    lines_by_y = {}
-    for s in spans:
-        y = round(s['bbox'][1], 0)
-        if y not in lines_by_y:
-            lines_by_y[y] = []
-        lines_by_y[y].append(s)
-
-    # Process each line
-    for y in sorted(lines_by_y.keys()):
-        line_spans = sorted(lines_by_y[y], key=lambda s: s['bbox'][0])
-
-        # Decode item numbers from control characters
-        item_no = ''
-        desc_parts = []
-
-        for s in line_spans:
-            text = s['text']
-            if s['has_ctrl']:
-                decoded = _decode_cid_digits(text)
-                if decoded and re.match(r'^\d{3}$', decoded):
-                    item_no = decoded
-                elif decoded:
-                    desc_parts.append(decoded)
-            else:
-                # Regular text - could be description
-                if not re.match(r'^(SPARE|PARTS|CROSS|HEAD|PLATE|ITEM|DESIGNATION)', text, re.IGNORECASE):
-                    desc_parts.append(text)
-
-        desc = ' '.join(desc_parts).strip()
-
-        # Skip header/footer lines
-        if not item_no and not desc:
-            continue
-        if SKIP_PATTERNS.search(desc):
-            continue
-        if desc and re.match(r'^(SPARE|PARTS|CROSS|HEAD|PLATE|ITEM|DESIGNATION)', desc, re.IGNORECASE):
-            continue
-
-        # Skip noise: dates, document numbers, page refs, pure numbers
-        if re.match(r'^\d{4}[-/]\d{2}[-/]\d{2}', desc):  # dates
-            continue
-        if re.match(r'^\d[\d\-]{6,}$', desc):  # document/part numbers without description
-            continue
-        if re.match(r'^\d+\s*\(\d+\)$', desc):  # page refs like "2 (2)"
-            continue
-        if re.match(r'^[\d\s\-\.]+$', desc):  # pure numbers/spaces
-            continue
-        if len(desc) > 5 and not item_no and re.match(r'^[A-Z][\d\s\-]{4,}$', desc):
-            # Looks like a document code, not a description
-            continue
-        # Skip CID-garbled headers (all uppercase, short, no spaces between words)
-        if not item_no and len(desc) < 25 and ' ' not in desc and desc == desc.upper():
-            continue
-
-        # Must have at least an item number or a meaningful description
-        if item_no or (desc and len(desc) > 3):
-            parts.append({
-                'part_number': item_no,
-                'description': desc,
-                'quantity': 0,
-                'unit': 'pcs',
-                'min_stock': 0,
-            })
-
-    return parts
-
-
-def _decode_cid_digits(text):
-    """Convert CID control characters to readable digits/text."""
-    result = []
-    for ch in text:
-        code = ord(ch)
-        # CID digit range: 0x12-0x1B (18-27) maps to 0-9
-        if 0x12 <= code <= 0x1B:
-            result.append(str(code - 18))
-        # Space (0x02) maps to space
-        elif code == 0x02:
-            result.append(' ')
-        # Regular printable ASCII (but not control chars)
-        elif 0x20 <= code <= 0x7E:
-            result.append(ch)
-        # Skip other control chars (like 0x03, 0x0F etc.)
-        else:
-            continue
-
-    decoded = ''.join(result).strip()
-    return decoded if decoded else None
 
 
 def _extract_tables(page):
@@ -301,7 +371,7 @@ def _extract_machinery_name(text):
             name = re.sub(r'[^\w\s\-/]', '', line).strip()
             if len(name) > 3:
                 return name.upper()
-    return 'UNKNOWN MACHINERY'
+    return ''
 
 
 def _extract_from_tables(tables):
@@ -358,7 +428,8 @@ def _map_columns(header_row):
 
 
 def _row_to_part(row, header_map):
-    part = {'part_number': '', 'description': '', 'quantity': 0, 'unit': 'pcs', 'min_stock': 0}
+    part = {'part_number': '', 'description': '', 'quantity': 0,
+            'unit': 'pcs', 'min_stock': 0, 'drawing_number': ''}
     for i, cell in enumerate(row):
         if cell is None:
             continue
@@ -403,23 +474,23 @@ def _extract_from_text(text):
 
     line_pattern_1 = re.compile(
         r'^\s*'
-        r'([A-Z0-9][\w\-\.\/\s]{2,30})\s+'
+        r'([A-Z0-9][\w\-./\s]{2,30})\s+'
         r'(.+?)\s+'
-        r'(\d[\d,\.]*)\s*'
+        r'(\d[\d,.]*)\s*'
         r'((?:pcs?|sets?|ea|kg|ltr?|mm|cm|nos?|pr)?)\s*$',
         re.IGNORECASE
     )
     line_pattern_2 = re.compile(
         r'^\s*\d+\s+'
-        r'([A-Z0-9][\w\-\.\/\s]{2,30})\s+'
+        r'([A-Z0-9][\w\-./\s]{2,30})\s+'
         r'(.+?)\s+'
-        r'(\d[\d,\.]*)\s*$',
+        r'(\d[\d,.]*)\s*$',
         re.IGNORECASE
     )
     line_pattern_3 = re.compile(
         r'^\s*'
-        r'([A-Z][\w\s\-\.]{5,60})\s+'
-        r'(\d[\d,\.]*)\s*$',
+        r'([A-Z][\w\s.\-]{5,60})\s+'
+        r'(\d[\d,.]*)\s*$',
         re.IGNORECASE
     )
 
@@ -439,7 +510,8 @@ def _extract_from_text(text):
             if description and len(description) > 1 and not SKIP_PATTERNS.search(description):
                 parts.append({
                     'part_number': part_number, 'description': description,
-                    'quantity': quantity or 0, 'unit': unit or 'pcs', 'min_stock': 0,
+                    'quantity': quantity or 0, 'unit': unit or 'pcs',
+                    'min_stock': 0, 'drawing_number': '',
                 })
             continue
 
@@ -451,7 +523,8 @@ def _extract_from_text(text):
             if description and len(description) > 1 and not SKIP_PATTERNS.search(description):
                 parts.append({
                     'part_number': part_number, 'description': description,
-                    'quantity': quantity or 0, 'unit': 'pcs', 'min_stock': 0,
+                    'quantity': quantity or 0, 'unit': 'pcs',
+                    'min_stock': 0, 'drawing_number': '',
                 })
             continue
 
@@ -462,7 +535,8 @@ def _extract_from_text(text):
             if description and len(description) > 3 and not SKIP_PATTERNS.search(description):
                 parts.append({
                     'part_number': '', 'description': description,
-                    'quantity': quantity or 0, 'unit': 'pcs', 'min_stock': 0,
+                    'quantity': quantity or 0, 'unit': 'pcs',
+                    'min_stock': 0, 'drawing_number': '',
                 })
 
     return parts
@@ -479,7 +553,7 @@ def _parse_quantity(text):
 
 
 def _looks_like_part_number(text):
-    if re.match(r'^[A-Z0-9][\w\-\.\/]{2,30}$', text, re.IGNORECASE):
+    if re.match(r'^[A-Z0-9][\w\-./]{2,30}$', text, re.IGNORECASE):
         if not re.match(r'^[a-z]+$', text, re.IGNORECASE):
             return True
     return False

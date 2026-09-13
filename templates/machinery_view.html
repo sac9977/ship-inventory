@@ -48,7 +48,8 @@
             <table class="table">
                 <thead>
                     <tr>
-                        <th>Part Number</th>
+                        <th>Item No.</th>
+                        <th>Drawing No.</th>
                         <th>Description</th>
                         <th>Quantity</th>
                         <th>Unit</th>
@@ -62,6 +63,7 @@
                     {% for p in parts %}
                     <tr>
                         <td class="font-mono">{{ p.part_number or '—' }}</td>
+                        <td class="font-mono" style="font-size:0.82rem">{{ p.drawing_number or '—' }}</td>
                         <td>{{ p.description }}</td>
                         <td>
                             <span class="qty {{ 'low' if p.quantity <= p.min_stock else 'ok' }}">

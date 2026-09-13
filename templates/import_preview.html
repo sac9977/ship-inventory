@@ -10,9 +10,18 @@
     </div>
     <div class="card-body">
         {% if result.machinery_name %}
-        <p class="mb-2">
+        <p class="mb-1">
             <span class="text-small text-muted">Detected machinery:</span>
             <strong>{{ result.machinery_name }}</strong>
+        </p>
+        {% endif %}
+        {% if result.drawing_number %}
+        <p class="mb-2">
+            <span class="text-small text-muted">Drawing / Identity number(s):</span>
+            <strong class="font-mono">{{ result.drawing_number }}</strong>
+            {% if result.plates and result.plates|length > 1 %}
+            <span class="text-small text-muted">— {{ result.plates|length }} plates across the document</span>
+            {% endif %}
         </p>
         {% endif %}
 
@@ -60,7 +69,15 @@
                     <input type="checkbox" name="selected_{{ loop.index }}" checked
                            data-index="{{ loop.index0 }}">
                     <span class="part-num font-mono">{{ part.part_number or '—' }}</span>
-                    <span class="part-desc">{{ part.description }}</span>
+                    <span class="part-desc">
+                        {{ part.description }}
+                        {% if part.drawing_number %}
+                        <span class="font-mono text-small text-muted">&nbsp;· dwg {{ part.drawing_number }}</span>
+                        {% endif %}
+                        {% if part.plate_title %}
+                        <span class="text-small text-muted">&nbsp;· {{ part.plate_title }}</span>
+                        {% endif %}
+                    </span>
                     <span class="part-qty">{{ part.quantity }} {{ part.unit or 'pcs' }}</span>
                 </div>
                 {% endfor %}
@@ -100,12 +117,14 @@ function toggleAll(state) {
 }
 
 // Keep parts_json in sync with checkbox state before submit
+// (plate_title is a parser-only annotation — drop it before import)
 document.getElementById('importForm').addEventListener('submit', function() {
     const parts = JSON.parse(document.getElementById('partsJson').value);
     document.querySelectorAll('#partsList input[type="checkbox"]').forEach(cb => {
         const idx = parseInt(cb.dataset.index);
         if (idx < parts.length) {
             parts[idx].selected = cb.checked;
+            delete parts[idx].plate_title;
         }
     });
     document.getElementById('partsJson').value = JSON.stringify(parts);

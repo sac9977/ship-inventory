@@ -535,9 +535,10 @@ def bulk_create_spare_parts(machinery_id, parts_list):
 
 def search_spare_parts(query, limit=None):
     """Relevance search over spare parts, mirroring search_stores_smart:
-    code-looking queries match only the digits of part_number (normalized,
-    ranked exact > prefix > substring); name queries substring-match the
-    description/part number. Rows carry machinery_name."""
+    code-looking queries match only the digits of part_number and
+    drawing_number (normalized, ranked exact > prefix > substring, part
+    number before drawing number); name queries substring-match the
+    description/part number/drawing number. Rows carry machinery_name."""
     q = (query or '').strip()
     if not q:
         return []
@@ -546,21 +547,30 @@ def search_spare_parts(query, limit=None):
                 "JOIN machinery m ON sp.machinery_id = m.id")
         if _is_probable_code(q):
             digits = _digits(q)
-            pn = "REPLACE(REPLACE(REPLACE(sp.part_number, '.', ''), ' ', ''), '-', '')"
+
+            def _norm(col):
+                return (f"REPLACE(REPLACE(REPLACE(REPLACE({col}, '.', ''), "
+                        f"' ', ''), '-', ''), '/', '')")
+
+            pn, dn = _norm("sp.part_number"), _norm("sp.drawing_number")
             base = (
-                f"{join} WHERE {pn} LIKE '%{digits}%' "
+                f"{join} WHERE {pn} LIKE '%{digits}%' OR {dn} LIKE '%{digits}%' "
                 f"ORDER BY CASE "
                 f"WHEN {pn} = '{digits}' THEN 0 "
                 f"WHEN {pn} LIKE '{digits}%' THEN 1 "
                 f"WHEN {pn} LIKE '%{digits}%' THEN 2 "
-                "ELSE 3 END, m.name, sp.part_number"
+                f"WHEN {dn} = '{digits}' THEN 3 "
+                f"WHEN {dn} LIKE '{digits}%' THEN 4 "
+                f"WHEN {dn} LIKE '%{digits}%' THEN 5 "
+                "ELSE 6 END, m.name, sp.part_number"
             )
             params = []
         else:
             like = f'%{q}%'
             base = (f"{join} WHERE sp.description LIKE ? OR sp.part_number LIKE ? "
+                    "OR sp.drawing_number LIKE ? "
                     "ORDER BY m.name, sp.part_number")
-            params = [like, like]
+            params = [like, like, like]
         sql = base + (" LIMIT ?" if limit else "")
         rows = conn.execute(sql, params + [limit] if limit else params).fetchall()
         return [dict(r) for r in rows]
