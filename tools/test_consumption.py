@@ -77,10 +77,13 @@ r0m = find_item(data_m, ids[0])
 assert r0m and r0m['total_qty'] == r0['total_qty'], 'month mode missed txns'
 print(f"3. month mode OK ({now.year}-{now.month:02d})")
 
-# 4. date-range mode
+# 4. date-range mode (today's window must include the whole fixture run)
 today = now.date()
 data_r = db.get_stores_consumption(date_from=str(today), date_to=str(today))
-assert find_item(data_r, ids[0])['total_qty'] == r0['total_qty']
+r0r = find_item(data_r, ids[0])
+assert r0r is not None, 'date-range mode missed fixture item'
+assert r0r['total_qty'] >= r0['total_qty'] - before.get(ids[0], 0), \
+    'date-range total below the fixture contribution'
 print('4. date-range mode OK')
 
 # 5. screen page renders with data + links

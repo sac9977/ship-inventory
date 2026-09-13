@@ -22,6 +22,9 @@ print('1. login OK')
 # 2. import the prepared IMPA CSV
 csv_path = '/tmp/impa_import.csv'
 if not os.path.exists(csv_path):
+    csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            'impa_import_ready.csv')
+if not os.path.exists(csv_path):
     sys.exit('run prepare_impa_csv.py first')
 with open(csv_path, 'rb') as f:
     data = f.read()

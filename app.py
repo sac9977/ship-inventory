@@ -231,11 +231,8 @@ def change_password():
 
         if not db.verify_user_password(session['user_id'], current):
             flash('Current password is incorrect.', 'danger')
-        elif len(new_pass) < 8:
-            flash('New password must be at least 8 characters.', 'danger')
-        elif new_pass.lower() in ('admin', 'password', 'changeme', 'ship12345',
-                                  '12345678', '123456789'):
-            flash('That password is too common. Choose something unique.', 'danger')
+        elif not _valid_new_password(new_pass):
+            flash(_password_rule_text(), 'danger')
         elif new_pass == current:
             flash('New password must differ from the current one.', 'danger')
         elif new_pass != confirm:
@@ -1806,6 +1803,38 @@ def reports_consumption_export():
 
 # ── Crew Management ──
 
+def _valid_new_password(pw):
+    """Shared password policy: 8+ chars, not a known-common password."""
+    if not pw or len(pw) < 8:
+        return False
+    return pw.lower() not in ('admin', 'password', 'changeme', 'ship12345',
+                              '12345678', '123456789')
+
+
+def _password_rule_text():
+    return ('Password must be at least 8 characters and not a common '
+            'password (admin, password, 12345678, etc.).')
+
+
+def _crew_username_conflict(username):
+    """Error text when a username is taken by ANY account (incl. deactivated)."""
+    if not username:
+        return None
+    existing = db.get_crew_by_username(username)
+    if existing:
+        state = 'a deactivated' if not existing['active'] else 'an active'
+        return (f'Username "{username}" already belongs to {state} account '
+                f'({existing["name"]}). Choose another or re-enable that account.')
+    return None
+
+
+def _last_admin_guard(crew_id):
+    """False if crew_id is the only remaining active admin."""
+    others = [c for c in db.get_all_crew(include_inactive=False)
+              if c['role'] == 'admin' and c['id'] != crew_id]
+    return len(others) >= 1
+
+
 @app.route('/crew', methods=['GET', 'POST'])
 @admin_required
 def crew_manage():
@@ -1816,18 +1845,69 @@ def crew_manage():
         password = request.form.get('password', '')
         role = request.form.get('role', 'user').strip()
         if name:
-            db.create_crew_member(name, rank, username, password, role)
-            flash(f'Crew member "{name}" added.', 'success')
-        return redirect(url_for('crew_manage'))
-    crew = db.get_all_crew()
+            username_err = _crew_username_conflict(username)
+            if username_err:
+                flash(username_err, 'danger')
+            elif password and not _valid_new_password(password):
+                flash(_password_rule_text(), 'danger')
+            else:
+                db.create_crew_member(name, rank, username, password, role)
+                flash(f'Crew member "{name}" added.', 'success')
+            return redirect(url_for('crew_manage'))
+    crew = db.get_all_crew(include_inactive=True)
     return render_template('crew_list.html', crew=crew)
 
 
 @app.route('/crew/delete/<int:crew_id>', methods=['POST'])
 @admin_required
 def crew_delete(crew_id):
-    db.delete_crew_member(crew_id)
-    flash('Crew member removed.', 'success')
+    target = db.get_user(crew_id)
+    if not target:
+        flash('Crew member not found.', 'danger')
+    elif crew_id == session.get('user_id'):
+        flash('You cannot deactivate your own account.', 'danger')
+    elif not _last_admin_guard(crew_id):
+        flash('Cannot deactivate the last remaining admin account.', 'danger')
+    else:
+        db.delete_crew_member(crew_id)
+        flash(f'Crew member "{target["name"]}" deactivated — login disabled.', 'success')
+    return redirect(url_for('crew_manage'))
+
+
+@app.route('/crew/reset-password/<int:crew_id>', methods=['POST'])
+@admin_required
+def crew_reset_password(crew_id):
+    """Admin sets a new password for a crew member; they must change it at
+    next login (forced-change flag), same as the shipboard default flow."""
+    target = db.get_user(crew_id)
+    if not target:
+        flash('Crew member not found.', 'danger')
+        return redirect(url_for('crew_manage'))
+    new_pass = request.form.get('new_password', '')
+    if not new_pass or not _valid_new_password(new_pass):
+        flash(_password_rule_text(), 'danger')
+    elif db.verify_user_password(crew_id, new_pass):
+        flash('New password must differ from the current one.', 'danger')
+    else:
+        db.update_user_password(crew_id, new_pass)
+        db.set_must_change_password(crew_id, 1)
+        flash(f'Password reset for "{target["name"]}" — they must change it '
+              'at next login.', 'success')
+    return redirect(url_for('crew_manage'))
+
+
+@app.route('/crew/toggle-active/<int:crew_id>', methods=['POST'])
+@admin_required
+def crew_toggle_active(crew_id):
+    """Re-enable a deactivated account (deactivation goes through crew_delete)."""
+    target = db.get_user(crew_id)
+    if not target:
+        flash('Crew member not found.', 'danger')
+    elif target['active']:
+        flash('Account is already active.', 'info')
+    else:
+        db.set_crew_active(crew_id, True)
+        flash(f'Account for "{target["name"]}" re-enabled.', 'success')
     return redirect(url_for('crew_manage'))
 
 

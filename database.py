@@ -1092,12 +1092,22 @@ def get_report_data(year=None, month=None, date_from=None, date_to=None):
 
 # ── Crew ──
 
-def get_all_crew():
+def get_all_crew(include_inactive=False):
+    """All crew members; optionally include deactivated (login-disabled) accounts."""
     with db_connection() as conn:
-        rows = conn.execute(
-            "SELECT id, name, rank, username, role, active FROM crew WHERE active = 1 ORDER BY name"
-        ).fetchall()
-        return [dict(r) for r in rows]
+        q = ("SELECT id, name, rank, username, role, active, must_change_password, "
+             "password_hash FROM crew")
+        if not include_inactive:
+            q += " WHERE active = 1"
+        q += " ORDER BY active DESC, name"
+        rows = conn.execute(q).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            # Never leak hashes to templates; expose only what the UI needs.
+            d['has_login'] = bool(d.pop('password_hash', ''))
+            out.append(d)
+        return out
 
 
 def create_crew_member(name, rank='', username='', password='', role='user'):
@@ -1115,9 +1125,25 @@ def create_crew_member(name, rank='', username='', password='', role='user'):
         return cursor.lastrowid
 
 
+def get_crew_by_username(username):
+    """One crew member by username (any active state), or None."""
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM crew WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+
+
 def delete_crew_member(crew_id):
+    """Deactivate a crew account (soft delete — login disabled, history kept)."""
     with db_connection() as conn:
         conn.execute("UPDATE crew SET active = 0 WHERE id = ?", (crew_id,))
+
+
+def set_crew_active(crew_id, active=True):
+    """Enable or disable a crew member's account (login allowed or not)."""
+    with db_connection() as conn:
+        conn.execute("UPDATE crew SET active = ? WHERE id = ?",
+                     (1 if active else 0, crew_id))
 
 
 # ── Authentication ──

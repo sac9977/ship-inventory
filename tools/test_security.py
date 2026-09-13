@@ -105,7 +105,7 @@ try:
     r = c.post('/change-password', data={'current_password': 'admin',
                                          'new_password': '12345678', 'confirm_password': '12345678'},
                follow_redirects=True)
-    assert 'too common' in r.get_data(as_text=True)
+    assert 'too common' in r.get_data(as_text=True) or 'not a common password' in r.get_data(as_text=True)
     # mismatched confirm rejected
     r = c.post('/change-password', data={'current_password': 'admin',
                                          'new_password': 'ShipSecure#2026', 'confirm_password': 'different'},

@@ -36,7 +36,7 @@
                 </div>
                 <div class="form-group">
                     <label for="password">Login Password</label>
-                    <input type="password" class="form-control" id="password" name="password" placeholder="Set a password for login (optional)">
+                    <input type="password" class="form-control" id="password" name="password" placeholder="Min 8 characters, not a common password (optional)">
                 </div>
             </div>
             <div class="form-actions">
@@ -61,14 +61,14 @@
                         <th>Rank</th>
                         <th>Username</th>
                         <th>Role</th>
-                        <th>Login</th>
+                        <th>Account</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for c in crew %}
-                    <tr>
-                        <td><strong>{{ c.name }}</strong></td>
+                    <tr {% if not c.active %}style="opacity:0.55"{% endif %}>
+                        <td><strong>{{ c.name }}</strong>{% if c.id == session.get('user_id') %} <span class="text-muted text-small">(you)</span>{% endif %}</td>
                         <td class="text-muted">{{ c.rank or '—' }}</td>
                         <td class="font-mono">{{ c.username or '—' }}</td>
                         <td>
@@ -79,19 +79,34 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if c.username %}
-                            <span class="badge-status badge-ok">✓ Enabled</span>
+                            {% if not c.active %}
+                            <span class="badge-status" style="background:rgba(220,53,69,0.15);color:#ff6b7a">Deactivated</span>
+                            {% elif c.has_login and c.must_change_password %}
+                            <span class="badge-status" style="background:rgba(255,193,7,0.15);color:#ffc95e">Password reset pending</span>
+                            {% elif c.has_login %}
+                            <span class="badge-status badge-ok">✓ Active</span>
                             {% else %}
                             <span class="text-muted text-small">No login</span>
                             {% endif %}
                         </td>
                         <td>
+                            {% if c.active %}
                             <form method="POST" action="{{ url_for('crew_delete', crew_id=c.id) }}"
                                   style="display:inline;"
-                                  onsubmit="return confirm('Remove {{ c.name }} from crew?');">
-            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                                <button type="submit" class="btn btn-danger btn-sm">🗑️ Remove</button>
+                                  onsubmit="return confirm('Deactivate {{ c.name }}? Their login will be disabled.');">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-danger btn-sm">🚫 Deactivate</button>
                             </form>
+                            {% if c.has_login %}
+                            <button type="button" class="btn btn-secondary btn-sm"
+                                    onclick="toggleReset({{ c.id }}, '{{ c.name|e }}')">🔑 Reset password</button>
+                            {% endif %}
+                            {% else %}
+                            <form method="POST" action="{{ url_for('crew_toggle_active', crew_id=c.id) }}" style="display:inline;">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-success btn-sm">✓ Re-enable</button>
+                            </form>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
@@ -107,4 +122,46 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Reset Password Dialog (one per page, filled per row) -->
+<div id="reset-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:1000; align-items:center; justify-content:center;">
+    <div class="card" style="width:380px; max-width:92vw;">
+        <div class="card-header">🔑 Reset Password — <span id="reset-name"></span></div>
+        <div class="card-body">
+            <form method="POST" action="" id="reset-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <div class="form-group">
+                    <label for="reset_pw">New Password</label>
+                    <input type="password" class="form-control" id="reset_pw" name="new_password" required
+                           minlength="8" placeholder="Min 8 characters, not a common password" autocomplete="new-password">
+                    <p class="text-muted text-small" style="margin-top:6px;">
+                        The crew member will be required to change this password at their next login.
+                    </p>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">Set Password</button>
+                    <button type="button" class="btn btn-secondary" onclick="toggleReset()">Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleReset(crewId, name) {
+    var overlay = document.getElementById('reset-overlay');
+    if (!crewId) { overlay.style.display = 'none'; return; }
+    document.getElementById('reset-name').textContent = name;
+    document.getElementById('reset-form').action = '/crew/reset-password/' + crewId;
+    document.getElementById('reset_pw').value = '';
+    overlay.style.display = 'flex';
+    document.getElementById('reset_pw').focus();
+}
+document.getElementById('reset-overlay').addEventListener('click', function (e) {
+    if (e.target === this) toggleReset();
+});
+</script>
 {% endblock %}
