@@ -59,6 +59,65 @@
     </div>
 </div>
 
+<!-- Pre-Migration Snapshots -->
+{% if migration_backups or migration_banner %}
+<div class="card mb-3">
+    <div class="card-header">
+        <h2>🛟 Pre-Migration Snapshots</h2>
+    </div>
+    <div class="card-body">
+        <p style="font-size:0.85rem; color:var(--steel-600); margin-bottom:12px;">
+            Automatic snapshots taken immediately before a schema upgrade.
+            Restoring one rewinds the database to its state before that upgrade
+            (afterwards, run the app on the older code version).
+        </p>
+        {% if migration_banner %}
+        <div class="flash flash-info" style="margin-bottom:12px;">
+            🛟 This startup upgraded the schema. Snapshot taken first:
+            <code>{{ migration_banner.filename }}</code>
+            ({{ (migration_banner.size // 1024) }}KB).
+        </div>
+        {% endif %}
+        {% if migration_backups %}
+        <div class="table-responsive">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Snapshot File</th>
+                        <th>Date & Time</th>
+                        <th>Size</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in migration_backups %}
+                    <tr>
+                        <td><code>{{ b.filename }}</code></td>
+                        <td>{{ b.modified }}</td>
+                        <td>{{ (b.size // 1024) }}KB</td>
+                        <td style="white-space:nowrap;">
+                            <a href="/backup/download/{{ b.filename }}" class="btn btn-sm btn-outline">📥 Download</a>
+                            <form method="POST" action="/backup/restore/{{ b.filename }}"
+                                  style="display:inline;" onclick="event.stopPropagation();">
+                                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-sm btn-outline"
+                                        onclick="return confirm('Rewind to {{ b.filename }}? Current data will be replaced.');">
+                                    ⏪ Rewind
+                                </button>
+                            </form>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-muted" style="margin:0;">Only the snapshot from this startup exists so far — it appears above.</p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
 <!-- Upload & Restore -->
 <div class="card mb-3">
     <div class="card-header">

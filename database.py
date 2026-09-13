@@ -12,6 +12,15 @@ from contextlib import contextmanager
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ship_inventory.db')
 BACKUP_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups')
 MAX_BACKUPS = 5
+MAX_MIGRATION_BACKUPS = 10
+
+# ── Schema versioning ──
+# Bump SCHEMA_VERSION whenever init_db() gains a structural change (new table,
+# column, or backfill) so pre-migration snapshots get taken exactly when the
+# schema is about to change. Version history:
+#   1: initial schema
+#   2: user_sessions table + crew.password_changed_at
+SCHEMA_VERSION = 2
 
 # Initial min-stock guesses per store category (used on first init; the admin
 # can tune them on the Stock Settings page afterwards).
@@ -37,6 +46,40 @@ DEFAULT_CATEGORY_MIN_STOCKS = {
     'Welding': 1,
     'Insulation': 1,
 }
+
+
+def _snapshot(path):
+    """Consistent DB snapshot via the SQLite backup API (WAL-safe)."""
+    src = sqlite3.connect(DB_PATH)
+    dst = sqlite3.connect(path)
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+
+
+def _rotate(pool_pattern, keep):
+    """Keep only the newest `keep` files matching a backup-name pattern."""
+    files = sorted(glob.glob(os.path.join(BACKUP_DIR, pool_pattern)))
+    while len(files) > keep:
+        os.remove(files.pop(0))
+
+
+def create_backup(tag):
+    """Snapshot the DB into backups/<tag>_<timestamp>.db; returns filename.
+    Returns None when the DB does not exist or the snapshot fails."""
+    if not os.path.exists(DB_PATH):
+        return None
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'{tag}_{timestamp}.db'
+    try:
+        _snapshot(os.path.join(BACKUP_DIR, filename))
+        _rotate(f'{tag}_*.db', MAX_MIGRATION_BACKUPS)
+        return filename
+    except Exception:
+        return None
 
 
 def auto_backup():
@@ -65,20 +108,31 @@ def restore_backup(backup_path):
     """Restore database from a backup file."""
     if not os.path.exists(backup_path):
         raise FileNotFoundError(f'Backup not found: {backup_path}')
-    # Create a safety backup of current DB before restore
+    # Safety snapshot of the current DB (backup API: consistent under WAL,
+    # unlike a raw file copy that can miss the -wal tail).
     if os.path.exists(DB_PATH):
         safety_path = os.path.join(BACKUP_DIR, f'pre_restore_{datetime.now().strftime("%Y%m%d_%H%M%S")}.db')
         os.makedirs(BACKUP_DIR, exist_ok=True)
-        shutil.copy2(DB_PATH, safety_path)
+        try:
+            _snapshot(safety_path)
+        except Exception:
+            shutil.copy2(DB_PATH, safety_path)
     shutil.copy2(backup_path, DB_PATH)
+    # Remove stale WAL sidecars so the next open rebuilds from the restored
+    # file instead of replaying pre-restore transactions.
+    for sidecar in (DB_PATH + '-wal', DB_PATH + '-shm'):
+        try:
+            os.remove(sidecar)
+        except OSError:
+            pass
 
 
-def list_backups():
-    """List available backup files with sizes and dates."""
+def list_backups(pattern='ship_inventory_*.db'):
+    """List backup files matching a pattern, newest first."""
     if not os.path.exists(BACKUP_DIR):
         return []
     backups = []
-    for f in sorted(glob.glob(os.path.join(BACKUP_DIR, 'ship_inventory_*.db')), reverse=True):
+    for f in sorted(glob.glob(os.path.join(BACKUP_DIR, pattern)), reverse=True):
         stat = os.stat(f)
         backups.append({
             'path': f,
@@ -134,8 +188,44 @@ def db_connection():
         conn.close()
 
 
+def get_schema_version(conn=None):
+    """Read the stamped schema version (0 = pre-versioning legacy DB)."""
+    if conn is None:
+        if not os.path.exists(DB_PATH):
+            return SCHEMA_VERSION
+        conn = sqlite3.connect(DB_PATH)
+        try:
+            return conn.execute('PRAGMA user_version').fetchone()[0]
+        finally:
+            conn.close()
+    return conn.execute('PRAGMA user_version').fetchone()[0]
+
+
+def _stamp_schema_version():
+    """Adopt the current SCHEMA_VERSION (called just before schema setup)."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(f'PRAGMA user_version = {SCHEMA_VERSION}')
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def init_db():
-    """Initialize the database schema."""
+    """Initialize the database schema.
+
+    Before touching the schema, compares the stamped schema version with
+    SCHEMA_VERSION; on any change it snapshots the database into a dedicated
+    pre-migration backup pool (kept for MAX_MIGRATION_BACKUPS runs) so every
+    upgrade is reversible. Legacy DBs (version 0) snapshot once on their first
+    versioned startup, then adopt the current version."""
+    if os.path.exists(DB_PATH):
+        current = get_schema_version()
+        if current != SCHEMA_VERSION:
+            backup_file = create_backup('pre_migration')
+            print(f'  💾 Schema change {current} → {SCHEMA_VERSION}: '
+                  f'pre-migration backup {backup_file or "FAILED"}')
+    _stamp_schema_version()
     with db_connection() as conn:
         conn.executescript('''
             CREATE TABLE IF NOT EXISTS machinery (

@@ -164,6 +164,11 @@ db.ensure_admin_user()  # Create default admin login if none exists
 # ── Auto-backup on startup ──
 db.auto_backup()
 
+# Most recent pre-migration snapshot, if init_db took one this startup
+# (shown on the Backup page so upgrades are visibly reversible).
+MIGRATION_BACKUP = db.list_backups('pre_migration_*.db')
+MIGRATION_BACKUP = MIGRATION_BACKUP[0] if MIGRATION_BACKUP else None
+
 
 # ══════════════════════════════════════════════════════════════
 #  AUTHENTICATION SYSTEM
@@ -1506,8 +1511,14 @@ def stock_settings():
 @admin_required
 def backup_page():
     backups = db.list_backups()
+    migration_backups = db.list_backups('pre_migration_*.db')
+    if MIGRATION_BACKUP and migration_backups:
+        migration_backups = [m for m in migration_backups
+                             if m['filename'] != MIGRATION_BACKUP['filename']]
     stats = db.get_db_stats()
-    return render_template('backup.html', backups=backups, stats=stats)
+    return render_template('backup.html', backups=backups, stats=stats,
+                           migration_backups=migration_backups,
+                           migration_banner=MIGRATION_BACKUP)
 
 
 @app.route('/backup/create', methods=['POST'])
@@ -1544,6 +1555,16 @@ def backup_restore(filename):
     backup_path = os.path.join(db.BACKUP_DIR, filename)
     try:
         db.restore_backup(backup_path)
+        # The restored file replaces the session registry too; re-register the
+        # restoring admin's own session so they keep their login (other users
+        # will need to log in again — expected after a rewind).
+        token = session.get(SESSION_TOKEN_KEY)
+        if token and 'user_id' in session:
+            try:
+                ip, ua = _session_fingerprint()
+                db.create_session(session['user_id'], token, ip, ua)
+            except Exception:
+                pass  # token already registered in the restored file
         flash(f'Restored from {filename}. Restart the app for changes to take effect.', 'success')
     except Exception as e:
         flash(f'Restore failed: {str(e)}', 'danger')
@@ -2170,5 +2191,8 @@ if __name__ == '__main__':
     backups = db.list_backups()
     if backups:
         print(f"  📁 Backups: {len(backups)} available (latest: {backups[0]['modified']})")
+    if MIGRATION_BACKUP:
+        print(f"  🛟 Pre-migration snapshot: {MIGRATION_BACKUP['filename']} "
+              f"(restore via Backup page)")
     print()
     app.run(host='0.0.0.0', port=port, debug=False)
