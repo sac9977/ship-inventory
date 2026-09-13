@@ -196,6 +196,20 @@ def init_db():
                 must_change_password INTEGER DEFAULT 0
             );
 
+            CREATE TABLE IF NOT EXISTS user_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                session_token TEXT NOT NULL UNIQUE,
+                ip_address TEXT DEFAULT '',
+                user_agent TEXT DEFAULT '',
+                created_at TEXT DEFAULT (datetime('now')),
+                last_seen_at TEXT DEFAULT (datetime('now')),
+                revoked_at TEXT DEFAULT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_user_sessions_token ON user_sessions(session_token);
+
             CREATE INDEX IF NOT EXISTS idx_spare_parts_machinery ON spare_parts(machinery_id);
             CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(item_category);
             CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(transaction_type);
@@ -213,6 +227,13 @@ def init_db():
         try:
             conn.execute(
                 "ALTER TABLE crew ADD COLUMN must_change_password INTEGER DEFAULT 0")
+        except Exception:
+            pass  # Column already exists
+
+        # Migration: password_changed_at on crew (for security settings page)
+        try:
+            conn.execute(
+                "ALTER TABLE crew ADD COLUMN password_changed_at TEXT DEFAULT NULL")
         except Exception:
             pass  # Column already exists
 
@@ -1096,7 +1117,7 @@ def get_all_crew(include_inactive=False):
     """All crew members; optionally include deactivated (login-disabled) accounts."""
     with db_connection() as conn:
         q = ("SELECT id, name, rank, username, role, active, must_change_password, "
-             "password_hash FROM crew")
+             "password_changed_at, password_hash FROM crew")
         if not include_inactive:
             q += " WHERE active = 1"
         q += " ORDER BY active DESC, name"
@@ -1113,14 +1134,17 @@ def get_all_crew(include_inactive=False):
 def create_crew_member(name, rank='', username='', password='', role='user'):
     with db_connection() as conn:
         password_hash = ''
+        changed_at = None
         if password:
             import hashlib, secrets
             salt = secrets.token_hex(16)
             h = hashlib.sha256((salt + password).encode()).hexdigest()
             password_hash = f"{salt}${h}"
+            changed_at = datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         cursor = conn.execute(
-            "INSERT INTO crew (name, rank, username, password_hash, role) VALUES (?, ?, ?, ?, ?)",
-            (name, rank, username, password_hash, role)
+            "INSERT INTO crew (name, rank, username, password_hash, role, "
+            "password_changed_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (name, rank, username, password_hash, role, changed_at)
         )
         return cursor.lastrowid
 
@@ -1184,16 +1208,17 @@ def verify_user_password(user_id, current_password):
 
 
 def update_user_password(user_id, new_password):
-    """Update a user's password and clear any forced-change flag."""
+    """Update a user's password, clear any forced-change flag, and stamp the
+    change time. Session revocation is a route-level policy decision."""
     import hashlib, secrets
     salt = secrets.token_hex(16)
     h = hashlib.sha256((salt + new_password).encode()).hexdigest()
     password_hash = f"{salt}${h}"
     with db_connection() as conn:
         conn.execute(
-            "UPDATE crew SET password_hash = ?, must_change_password = 0 WHERE id = ?",
-            (password_hash, user_id)
-        )
+            "UPDATE crew SET password_hash = ?, must_change_password = 0, "
+            "password_changed_at = datetime('now') WHERE id = ?",
+            (password_hash, user_id))
 
 
 def set_must_change_password(user_id, flag=1):
@@ -1225,12 +1250,119 @@ def ensure_admin_user():
             except Exception:
                 pass  # Already exists
 
-
 def get_user(user_id):
     """One crew member as a dict, or None."""
     with db_connection() as conn:
         row = conn.execute("SELECT * FROM crew WHERE id = ?", (user_id,)).fetchone()
         return dict(row) if row else None
+
+
+# ── Session Registry (server-side session tracking for the security page) ──
+
+def create_session(user_id, session_token, ip_address='', user_agent=''):
+    """Register a new login session for tracking/revocation."""
+    with db_connection() as conn:
+        conn.execute(
+            "INSERT INTO user_sessions (user_id, session_token, ip_address, user_agent) "
+            "VALUES (?, ?, ?, ?)",
+            (user_id, session_token, (ip_address or '')[:64], (user_agent or '')[:256]))
+
+
+def touch_session(session_token):
+    """Update last_seen_at for an active (non-revoked) session."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE user_sessions SET last_seen_at = datetime('now') "
+            "WHERE session_token = ? AND revoked_at IS NULL", (session_token,))
+
+
+def revoke_session(session_token):
+    """Revoke one session by token (admin action / logout)."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE user_sessions SET revoked_at = datetime('now') "
+            "WHERE session_token = ? AND revoked_at IS NULL", (session_token,))
+
+
+def revoke_all_sessions(user_id, except_token=None):
+    """Revoke every active session for a user, optionally sparing one."""
+    with db_connection() as conn:
+        if except_token:
+            conn.execute(
+                "UPDATE user_sessions SET revoked_at = datetime('now') "
+                "WHERE user_id = ? AND revoked_at IS NULL AND session_token != ?",
+                (user_id, except_token))
+        else:
+            conn.execute(
+                "UPDATE user_sessions SET revoked_at = datetime('now') "
+                "WHERE user_id = ? AND revoked_at IS NULL", (user_id,))
+
+
+def is_session_revoked(session_token):
+    """True if the token exists AND is revoked (unknown tokens are not revoked)."""
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT revoked_at FROM user_sessions WHERE session_token = ?",
+            (session_token,)).fetchone()
+        return bool(row and row['revoked_at'])
+
+
+def is_session_valid(session_token, user_id):
+    """True if the token exists, belongs to user_id, and is not revoked."""
+    with db_connection() as conn:
+        row = conn.execute(
+            "SELECT revoked_at FROM user_sessions "
+            "WHERE session_token = ? AND user_id = ?",
+            (session_token, user_id)).fetchone()
+        return bool(row and not row['revoked_at'])
+
+
+def revoke_session_by_id(session_id):
+    """Revoke one registered session by its row id."""
+    with db_connection() as conn:
+        conn.execute(
+            "UPDATE user_sessions SET revoked_at = datetime('now') "
+            "WHERE id = ? AND revoked_at IS NULL", (session_id,))
+
+
+def get_last_logins():
+    """user_id -> {last_login, active_count} aggregated from the registry."""
+    with db_connection() as conn:
+        rows = conn.execute(
+            "SELECT user_id, MAX(created_at) AS last_login, "
+            "COUNT(CASE WHEN revoked_at IS NULL THEN 1 END) AS active_count "
+            "FROM user_sessions GROUP BY user_id").fetchall()
+        return {r['user_id']: dict(r) for r in rows}
+
+
+def get_active_sessions(user_id=None):
+    """Active (non-revoked) sessions with user info, newest activity first."""
+    with db_connection() as conn:
+        q = ("SELECT s.id, s.user_id, s.session_token, s.ip_address, s.user_agent, "
+             "s.created_at, s.last_seen_at, c.name, c.username, c.role "
+             "FROM user_sessions s JOIN crew c ON c.id = s.user_id "
+             "WHERE s.revoked_at IS NULL")
+        params = []
+        if user_id is not None:
+            q += " AND s.user_id = ?"
+            params.append(user_id)
+        q += " ORDER BY s.last_seen_at DESC, s.id DESC"
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
+
+
+def get_login_history(user_id=None, limit=20):
+    """Recent sessions (all states) with last login time per user."""
+    with db_connection() as conn:
+        q = ("SELECT s.user_id, s.ip_address, s.user_agent, s.created_at, "
+             "s.last_seen_at, s.revoked_at, c.name, c.username "
+             "FROM user_sessions s JOIN crew c ON c.id = s.user_id")
+        params = []
+        if user_id is not None:
+            q += " WHERE s.user_id = ?"
+            params.append(user_id)
+        q += " ORDER BY s.created_at DESC LIMIT ?"
+        params.append(limit)
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
 
 
 # ── Dashboard Stats ──

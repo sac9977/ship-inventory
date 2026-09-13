@@ -56,6 +56,17 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 86400 * 7  # 7 days
 
 # ── CSRF protection ──
 
+SESSION_TOKEN_KEY = '_sess_token'  # server-side registry token in the cookie
+
+
+def _session_fingerprint():
+    """Weak client fingerprint (IP + UA prefix) stored with the registry row."""
+    ip = (request.headers.get('X-Forwarded-For', request.remote_addr or '')
+          .split(',')[0].strip())
+    ua = request.headers.get('User-Agent', '')
+    return ip[:64], ua[:256]
+
+
 def get_csrf_token():
     """Per-session CSRF token, created on first use."""
     if '_csrf_token' not in session:
@@ -76,6 +87,22 @@ def csrf_protect():
         if not token or token != session.get('_csrf_token'):
             abort(400, description='Invalid or missing CSRF token. '
                                    'Reload the page and try again.')
+
+
+@app.before_request
+def validate_session():
+    """Enforce the server-side session registry: a cookie session is only
+    honoured while its token exists, belongs to the user, and is unrevoked
+    (password resets and admin revocations kill sessions immediately)."""
+    if 'user_id' not in session or request.endpoint == 'static':
+        return None
+    token = session.get(SESSION_TOKEN_KEY)
+    if not token or not db.is_session_valid(token, session['user_id']):
+        session.clear()
+        flash('Your session has ended. Please log in again.', 'warning')
+        return redirect(url_for('login'))
+    db.touch_session(token)
+    return None
 
 
 @app.before_request
@@ -196,11 +223,7 @@ def login():
 
         user = db.authenticate_user(username, password)
         if user:
-            session.permanent = remember
-            session['user_id'] = user['id']
-            session['user_name'] = user['name']
-            session['user_rank'] = user['rank']
-            session['user_role'] = user.get('role', 'user')
+            _begin_session(user, remember)
             if user.get('must_change_password'):
                 flash('Your account uses a default password. Please set a new one.', 'warning')
                 return redirect(url_for('change_password'))
@@ -213,12 +236,31 @@ def login():
     return render_template('login.html')
 
 
+def _begin_session(user, remember=False):
+    """Populate the cookie session and register it in the server-side registry."""
+    session.permanent = remember
+    session['user_id'] = user['id']
+    session['user_name'] = user['name']
+    session['user_rank'] = user['rank']
+    session['user_role'] = user.get('role', 'user')
+    token = secrets.token_hex(32)
+    session[SESSION_TOKEN_KEY] = token
+    ip, ua = _session_fingerprint()
+    db.create_session(user['id'], token, ip, ua)
+
+
 @app.route('/logout')
 def logout():
-    name = session.get('user_name', 'User')
-    session.clear()
-    flash(f'Goodbye, {name}.', 'success')
+    _end_session()
     return redirect(url_for('login'))
+
+
+def _end_session():
+    """Clear the cookie session and revoke its registry row."""
+    token = session.get(SESSION_TOKEN_KEY)
+    if token:
+        db.revoke_session(token)
+    session.clear()
 
 
 @app.route('/change-password', methods=['GET', 'POST'])
@@ -238,7 +280,14 @@ def change_password():
         elif new_pass != confirm:
             flash('New passwords do not match.', 'danger')
         else:
+            old_token = session.get(SESSION_TOKEN_KEY)
+            # Other devices/sessions die; this one keeps working (rotated below).
+            db.revoke_all_sessions(session['user_id'], except_token=old_token)
             db.update_user_password(session['user_id'], new_pass)
+            # Rotate the registry token so the just-changed session is fresh.
+            if old_token:
+                db.revoke_session(old_token)
+            _begin_session(db.get_user(session['user_id']))
             flash('Password changed successfully.', 'success')
             return redirect(url_for('dashboard'))
 
@@ -1891,6 +1940,8 @@ def crew_reset_password(crew_id):
     else:
         db.update_user_password(crew_id, new_pass)
         db.set_must_change_password(crew_id, 1)
+        # Security policy: an admin-set password invalidates all target sessions.
+        db.revoke_all_sessions(crew_id)
         flash(f'Password reset for "{target["name"]}" — they must change it '
               'at next login.', 'success')
     return redirect(url_for('crew_manage'))
@@ -1911,7 +1962,66 @@ def crew_toggle_active(crew_id):
     return redirect(url_for('crew_manage'))
 
 
+# ── Security Settings ──
+
+@app.route('/security')
+@admin_required
+def security_settings():
+    """Security overview: password policy, live sessions, last-login per user."""
+    users = db.get_all_crew(include_inactive=True)
+    sessions_by_user = {}
+    for s in db.get_active_sessions():
+        sessions_by_user.setdefault(s['user_id'], []).append(s)
+    last_logins = db.get_last_logins()
+    now = datetime.utcnow()
+    for u in users:
+        u['sessions'] = sessions_by_user.get(u['id'], [])
+        ll = last_logins.get(u['id'], {})
+        u['last_login'] = ll.get('last_login')
+        # Show how long the current password has been in force.
+        u['password_age_days'] = None
+        if u.get('password_changed_at'):
+            try:
+                changed = datetime.strptime(
+                    u['password_changed_at'], '%Y-%m-%d %H:%M:%S')
+                u['password_age_days'] = (now - changed).days
+            except (ValueError, TypeError):
+                pass
+    history = db.get_login_history(limit=20)
+    policy = {
+        'min_length': 8,
+        'common_blocked': True,
+        'reuse_blocked': True,
+        'forced_rotation': 'Admin resets force a change at next login; '
+                           'default passwords are locked out until changed',
+        'reset_revokes': True,
+        'session_tracking': True,
+    }
+    return render_template('security.html', users=users, policy=policy,
+                           history=history, now=now)
+
+
 # ── Search API ──
+
+@app.route('/security/revoke/<int:session_id>', methods=['POST'])
+@admin_required
+def security_revoke_session(session_id):
+    """Kill one live session (e.g. a shared terminal left logged in)."""
+    target = None
+    for s in db.get_active_sessions():
+        if s['id'] == session_id:
+            target = s
+            break
+    if not target:
+        flash('Session not found or already ended.', 'info')
+    elif target.get('session_token') == session.get(SESSION_TOKEN_KEY):
+        flash('You cannot revoke the session you are using. Log out instead.', 'danger')
+    else:
+        db.revoke_session_by_id(session_id)
+        flash(f'Session for "{target["name"]}" revoked — that device must '
+              'log in again.', 'success')
+    return redirect(url_for('security_settings'))
+
 
 @app.route('/api/search')
 @login_required
@@ -2002,6 +2112,8 @@ def inject_globals():
         active_page = 'machinery'
     elif 'crew' in path:
         active_page = 'crew'
+    elif 'security' in path:
+        active_page = 'security'
     elif 'backup' in path:
         active_page = 'backup'
     elif 'reports' in path:

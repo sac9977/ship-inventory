@@ -1,0 +1,170 @@
+{% extends 'base.html' %}
+
+{% block title %}Security Settings{% endblock %}
+{% block top_bar_title %}🔒 Security Settings{% endblock %}
+
+{% block content %}
+
+<!-- Password Policy -->
+<div class="card mb-2">
+    <div class="card-header">🛡️ Password Policy</div>
+    <div class="card-body">
+        <div class="policy-grid">
+            <div class="policy-item">
+                <div class="policy-value">8+</div>
+                <div class="policy-label">Minimum length</div>
+            </div>
+            <div class="policy-item">
+                <div class="policy-value">{{ '✓' if policy.common_blocked else '—' }}</div>
+                <div class="policy-label">Common passwords blocked</div>
+            </div>
+            <div class="policy-item">
+                <div class="policy-value">{{ '✓' if policy.reuse_blocked else '—' }}</div>
+                <div class="policy-label">Same-password reuse blocked</div>
+            </div>
+            <div class="policy-item">
+                <div class="policy-value">{{ '✓' if policy.reset_revokes else '—' }}</div>
+                <div class="policy-label">Resets revoke sessions</div>
+            </div>
+        </div>
+        <p class="text-muted text-small" style="margin-top:10px;">
+            {{ policy.forced_rotation }}. Passwords are salted SHA-256 hashes and are
+            never stored or displayed in plain text.
+        </p>
+    </div>
+</div>
+
+<!-- Per-user account security -->
+<div class="card mb-2">
+    <div class="card-header">👤 Account Security by User ({{ users|length }})</div>
+    <div class="card-body" style="padding:0">
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Role</th>
+                        <th>Status</th>
+                        <th>Password Set</th>
+                        <th>Last Login</th>
+                        <th>Active Sessions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for u in users %}
+                    <tr {% if not u.active %}style="opacity:0.55"{% endif %}>
+                        <td><strong>{{ u.name }}</strong>
+                            {% if u.id == session.get('user_id') %}<span class="text-muted text-small">(you)</span>{% endif %}
+                            <br><span class="font-mono text-muted text-small">{{ u.username or 'no login' }}</span>
+                        </td>
+                        <td>{% if u.role == 'admin' %}<span class="badge-status" style="background:rgba(94,106,210,0.15);color:#fff">Admin</span>{% else %}<span class="text-muted">User</span>{% endif %}</td>
+                        <td>
+                            {% if not u.active %}
+                            <span class="badge-status" style="background:rgba(220,53,69,0.15);color:#ff6b7a">Deactivated</span>
+                            {% elif u.must_change_password %}
+                            <span class="badge-status" style="background:rgba(255,193,7,0.15);color:#ffc95e">Password change due</span>
+                            {% else %}
+                            <span class="badge-status badge-ok">✓ Active</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.password_changed_at %}
+                                {{ u.password_changed_at[:10] }}
+                                {% if u.password_age_days is not none %}
+                                <span class="text-muted text-small">({{ u.password_age_days }}d ago)</span>
+                                {% endif %}
+                            {% else %}
+                            <span class="text-muted text-small">unknown / pre-tracking</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.last_login %}
+                                {{ u.last_login[:16] }}
+                            {% else %}
+                            <span class="text-muted text-small">never logged in</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if u.sessions %}
+                                {% for s in u['sessions'] %}
+                                <div class="sess-row">
+                                    <span class="badge-status badge-ok">{{ s.last_seen_at[:16] }}</span>
+                                    <span class="text-muted text-small" title="{{ s.user_agent }}">{{ s.ip_address or 'unknown IP' }} · {{ s.user_agent[:38] }}{% if s.user_agent|length > 38 %}…{% endif %}</span>
+                                    {% if s.session_token != session.get('_sess_token') %}
+                                    <form method="POST" action="{{ url_for('security_revoke_session', session_id=s.id) }}" style="display:inline;"
+                                          onsubmit="return confirm('Revoke this session? That device must log in again.');">
+                                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                                        <button type="submit" class="btn btn-danger btn-sm">Revoke</button>
+                                    </form>
+                                    {% else %}
+                                    <span class="text-muted text-small">(this device)</span>
+                                    {% endif %}
+                                </div>
+                                {% endfor %}
+                            {% else %}
+                            <span class="text-muted text-small">none</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Login history -->
+<div class="card">
+    <div class="card-header">🕐 Recent Login Activity (last {{ history|length }})</div>
+    <div class="card-body" style="padding:0">
+        {% if history %}
+        <div class="table-container">
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>User</th>
+                        <th>Login Time</th>
+                        <th>IP Address</th>
+                        <th>Device</th>
+                        <th>State</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h in history %}
+                    <tr>
+                        <td>{{ h.name }} <span class="font-mono text-muted text-small">{{ h.username }}</span></td>
+                        <td>{{ h.created_at[:16] }}</td>
+                        <td class="font-mono">{{ h.ip_address or '—' }}</td>
+                        <td class="text-muted text-small" title="{{ h.user_agent }}">{{ h.user_agent[:48] }}{% if h.user_agent|length > 48 %}…{% endif %}</td>
+                        <td>
+                            {% if h.revoked_at %}
+                            <span class="text-muted text-small">ended {{ h.revoked_at[:16] }}</span>
+                            {% else %}
+                            <span class="badge-status badge-ok">live</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty-state" style="padding:20px;">
+            <h3>No logins recorded yet</h3>
+            <p class="text-muted">Login history appears after the first login following this update.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<style>
+.policy-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; }
+.policy-item { background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.07); border-radius:10px; padding:14px; text-align:center; }
+.policy-value { font-size:1.4rem; font-weight:700; color:var(--accent, #5e6ad2); }
+.policy-label { font-size:0.8rem; color:var(--text-tertiary, #888); margin-top:4px; }
+.sess-row { display:flex; align-items:center; gap:8px; margin:3px 0; flex-wrap:wrap; }
+</style>
+{% endblock %}
