@@ -614,22 +614,96 @@ def get_store_categories():
         return [r['category'] for r in rows]
 
 
-def search_stores(query):
+def _digits(s):
+    """Digits only, from anywhere in a code fragment ('51.02' -> '5102')."""
+    return ''.join(ch for ch in (s or '') if ch.isdigit())
+
+
+def _is_probable_code(query):
+    """True when a query looks like an IMPA code rather than a name:
+    mostly digits/dots/spaces, 4+ digits, and at most a couple of letters."""
+    q = (query or '').strip()
+    if not q:
+        return False
+    digits = _digits(q)
+    letters = sum(1 for ch in q if ch.isalpha())
+    return len(digits) >= 4 and letters <= 2
+
+
+def _code_rank_expr(digits):
+    """SQL ordering expression: 0 exact digit match, 1 digit-prefix,
+    2 digit-substring, 3 everything else. `digits` is sanitized numeric."""
+    return (
+        "CASE "
+        f"WHEN REPLACE(REPLACE(REPLACE(item_code, '.', ''), ' ', ''), '-', '') = '{digits}' THEN 0 "
+        f"WHEN REPLACE(REPLACE(REPLACE(item_code, '.', ''), ' ', ''), '-', '') LIKE '{digits}%' THEN 1 "
+        f"WHEN REPLACE(REPLACE(REPLACE(item_code, '.', ''), ' ', ''), '-', '') LIKE '%{digits}%' THEN 2 "
+        "ELSE 3 END"
+    )
+
+
+def _code_match_expr(digits):
+    """SQL boolean: item_code's digits contain `digits` (zero-pad insensitive)."""
+    return ("REPLACE(REPLACE(REPLACE(item_code, '.', ''), ' ', ''), '-', '') "
+            f"LIKE '%{digits}%'")
+
+
+def search_stores_smart(query, limit=None):
+    """Relevance search across the stores catalog.
+
+    Code-looking queries (e.g. '510226', '0510', '33 01') match ONLY the
+    digits of item_code — leading zeros, dots, spaces and dashes are
+    ignored — and rank exact digit match first, then digit-prefix, then
+    digit-substring. Name-looking queries match name/description/code
+    substrings like before. Mixed results are avoided on purpose: a
+    digit query means "find the code".
+    Returns (rows, total) where rows honor `limit` but total does not.
+    """
+    q = (query or '').strip()
+    if not q:
+        return [], 0
     with db_connection() as conn:
-        rows = conn.execute(
-            "SELECT * FROM stores WHERE name LIKE ? OR description LIKE ? OR item_code LIKE ? "
-            "ORDER BY category, name",
-            (f'%{query}%', f'%{query}%', f'%{query}%')
-        ).fetchall()
-        return [dict(r) for r in rows]
+        if _is_probable_code(q):
+            digits = _digits(q)
+            code_match = _code_match_expr(digits)
+            rank = _code_rank_expr(digits)
+            base = (f"SELECT * FROM stores WHERE {code_match} "
+                    f"ORDER BY {rank}, category, name")
+            params = []
+        else:
+            like = f'%{q}%'
+            base = ("SELECT * FROM stores WHERE name LIKE ? OR description LIKE ? "
+                    "OR item_code LIKE ? ORDER BY category, name")
+            params = [like, like, like]
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM ({base})", params).fetchone()['c']
+        sql = base + (" LIMIT ?" if limit else "")
+        rows = conn.execute(sql, params + [limit] if limit else params).fetchall()
+        return [dict(r) for r in rows], total
+
+
+def search_stores(query):
+    """Legacy all-rows search, now relevance-aware for code queries."""
+    rows, _total = search_stores_smart(query)
+    return rows
 
 
 def get_stores_page(category=None, search='', page=1, per_page=50, low_only=False):
-    """One page of stores plus total count, for the paginated list view."""
+    """One page of stores plus total count, for the paginated list view.
+    Search is relevance-aware: code-looking queries rank by code match
+    quality (exact > prefix > substring, digit-normalized); combined with
+    low_only the result is filtered to low items only."""
     with db_connection() as conn:
         where, params = [], []
         if low_only:
             where.append("(min_stock > 0 AND quantity <= min_stock)")
+        order = ("(quantity * 1.0 / min_stock), category, name" if low_only
+                 else "category, name")
+        if search and not low_only:
+            # Relevance search owns filtering AND ordering for the full list.
+            rows, total = search_stores_smart(search)
+            offset = (page - 1) * per_page
+            return rows[offset:offset + per_page], total
         if search:
             like = f"%{search}%"
             where.append("(name LIKE ? OR description LIKE ? OR item_code LIKE ?)")
@@ -642,8 +716,6 @@ def get_stores_page(category=None, search='', page=1, per_page=50, low_only=Fals
             f"SELECT COUNT(*) AS c FROM stores {clause}", params
         ).fetchone()['c']
         offset = (page - 1) * per_page
-        order = ("(quantity * 1.0 / min_stock), category, name" if low_only
-                 else "category, name")
         rows = conn.execute(
             f"SELECT * FROM stores {clause} "
             f"ORDER BY {order} LIMIT ? OFFSET ?",

@@ -2063,7 +2063,8 @@ def api_search():
                     'qty': p['quantity'],
                 })
         if category in ('all', 'stores'):
-            for s in db.search_stores(query):
+            store_rows, _n = db.search_stores_smart(query, limit=25)
+            for s in store_rows:
                 results.append({
                     'type': 'store',
                     'id': s['id'],
@@ -2079,22 +2080,16 @@ def api_search():
 @app.route('/api/stores/lookup')
 @login_required
 def api_stores_lookup():
-    """Lightweight type-ahead for the transaction form's stores picker.
-    Matches code (prefix), then name (substring); caps results at 25."""
+    """Type-ahead for the transaction form's stores picker.
+    Relevance-ranked via search_stores_smart: code-looking queries match
+    digit-normalized item_code (exact > prefix > substring); names fall
+    back to substring. Caps results at 25."""
     q = request.args.get('q', '').strip()
     if len(q) < 2:
         return jsonify([])
-    limit = 25
-    with db.db_connection() as conn:
-        like = f"%{q}%"
-        rows = conn.execute(
-            "SELECT id, item_code, name, category, quantity, unit "
-            "FROM stores WHERE item_code LIKE ? OR name LIKE ? "
-            "ORDER BY CASE WHEN item_code LIKE ? THEN 0 ELSE 1 END, name "
-            "LIMIT ?",
-            (like, like, f"{q}%", limit)
-        ).fetchall()
-    return jsonify([dict(r) for r in rows])
+    rows, _total = db.search_stores_smart(q, limit=25)
+    keep = ('id', 'item_code', 'name', 'category', 'quantity', 'unit')
+    return jsonify([{k: r[k] for k in keep} for r in rows])
 
 
 # ── Context Processors ──
